@@ -12,6 +12,10 @@ from sklearn.metrics import f1_score
 
 import warnings
 warnings.filterwarnings('ignore')
+{'max_bin': 230, 'subsample': 0.7077968602861806, 'subsample_freq': 0.7791381169137779, 'learning_rate': 0.0307171922146124, 'max_depth': 4, 'feature_fraction': 0.4152593389590178, 'bagging_freq': 3, 'min_child_samples': 48, 'lambda_l1': 0.05055818836994474, 'lambda_l2': 0.005108262997516457}
+
+{'max_bin': 262, 'subsample': 0.6917060285817787, 'subsample_freq': 0.5724784279651307, 'learning_rate': 0.031616415546932314, 'max_depth': 7, 'feature_fraction': 0.5309740956391642, 'bagging_freq': 2, 'min_child_samples': 41, 'lambda_l1': 0.0033927357776106365, 'lambda_l2': 0.0033164666272842654}
+
 
 def lgb_f1_score(y_hat, data):
     y_true = data.get_label()
@@ -68,6 +72,7 @@ class LightGBM_wrapper:
         return train_df, test_df
     
 def run_cv(train_df, test_df, config):
+    tm = time.time()
     scores=[]
     oof_preds = []
     test_preds = []
@@ -95,4 +100,5 @@ def run_cv(train_df, test_df, config):
     print(f"mean score {np.mean(scores):.5f}")
     oof_preds = np.mean(oof_preds, axis=0)
     test_preds = np.mean(test_preds, axis=0)   
-    return oof_preds, test_preds, scores
+    print(f"execute time ::{time.time()-tm:.4f}")
+    return oof_preds, test_preds, scores, models
