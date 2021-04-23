@@ -3,6 +3,7 @@ import gc
 import numpy as np
 import pandas as pd
 import time, random, math
+import pickle
 
 from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold, KFold
 from sklearn import metrics
@@ -12,16 +13,6 @@ from sklearn.metrics import f1_score
 
 import warnings
 warnings.filterwarnings('ignore')
-{'max_bin': 230, 'subsample': 0.7077968602861806, 'subsample_freq': 0.7791381169137779, 'learning_rate': 0.0307171922146124, 'max_depth': 4, 'feature_fraction': 0.4152593389590178, 'bagging_freq': 3, 'min_child_samples': 48, 'lambda_l1': 0.05055818836994474, 'lambda_l2': 0.005108262997516457}
-
-{'max_bin': 262, 'subsample': 0.6917060285817787, 'subsample_freq': 0.5724784279651307, 'learning_rate': 0.031616415546932314, 'max_depth': 7, 'feature_fraction': 0.5309740956391642, 'bagging_freq': 2, 'min_child_samples': 41, 'lambda_l1': 0.0033927357776106365, 'lambda_l2': 0.0033164666272842654}
-
-
-def lgb_f1_score(y_hat, data):
-    y_true = data.get_label()
-    y_hat = np.round(y_hat) # scikits f1 doesn't like probabilities
-    return 'f1', f1_score(y_true, y_hat), True
-
 
 class LightGBM_wrapper:
     def __init__(self, features, target, cat_cols="auto"):
@@ -38,17 +29,20 @@ class LightGBM_wrapper:
         self.features = features
         self.target = target
         self.cat_cols = cat_cols 
+
+        self.models=[]
         
     def set_param(self, param):
         self.param = param
+
+    def save_model(self, name=''):
+        with open(f'{name}_lgbParam.pickle', 'wb') as f:
+            pickle.dump(f)
     
-    def train_predict(self, train_df, _test_df):
+    def train_predict(self, train_df):
         """
         Fold のカラム名は　基本Fold
         """        
-        models=[]
-        test_df = _test_df.sort_values('object_id').reset_index(drop=True).copy()
-        test_df[f'{self.target}_lgb_predict']=0
         Folds = set(train_df["Fold"])
         valid = []
         
@@ -58,47 +52,64 @@ class LightGBM_wrapper:
             valid_data = lgb.Dataset(valid_df[self.features], valid_df[self.target])
             model = lgb.train(self.param,  train_data,  num_boost_round=3000,  valid_sets=[train_data, valid_data], 
                               #feval=lgb_f1_score,
-                              verbose_eval=500, early_stopping_rounds=100, categorical_feature=self.cat_cols)
+                              verbose_eval=500, early_stopping_rounds=200, categorical_feature=self.cat_cols)
             
             
             valid_df[f'{self.target}_lgb_predict'] = model.predict(valid_df[self.features])
-            test_df[f'{self.target}_lgb_predict'] += model.predict(test_df[self.features])/len(Folds)
             valid.append(valid_df)
-            models.append(model)
+            self.models.append(model)
             
-        train_df = pd.concat(valid, axis=0).sort_values('object_id').reset_index(drop=True)
-        test_df = test_df.sort_values('object_id').reset_index(drop=True)
-        self.models = models
-        return train_df, test_df
+        train_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
+        return train_df
+
+class MaltiClassLightGBM_wrapper:
+    def __init__(self, features, target, num_class, cat_cols="auto"):
+        self.param = {
+            'boosting_type': 'gbdt',
+            'objective': 'multiclass', 'metric': 'multiclass', 'num_class':num_class,
+            'n_estimators': 1400, 'boost_from_average': False,'verbose': -1,'random_state':42,
     
-def run_cv(train_df, test_df, config):
-    tm = time.time()
-    scores=[]
-    oof_preds = []
-    test_preds = []
-    models = []
-    param = config.param_lgb
-    features = config.features_lgb
-    cat_features = config.cat_features_lgb
-    seeds = config.seeds_lgb
-    target_col = 'likes'
+            'max_bin': 82, 'subsample': 0.4507168737623794, 'subsample_freq': 0.6485534887326423,
+            'learning_rate': 0.06282022587205358, 'num_leaves': 8, 'feature_fraction': 0.638399152042614,
+            'bagging_freq': 1, 'min_child_samples': 37, 'lambda_l1': 0.007062503953162337, 'lambda_l2': 0.14272770413312064
+        }
+        
+        self.features = features
+        self.target = target
+        self.cat_cols = cat_cols 
+        self.num_class = num_class
 
-    for random_state in seeds:
-        param['random_state'] = random_state
-        lightgbm_wrapper = LightGBM_wrapper(features, target_col, cat_features)
-        lightgbm_wrapper.set_param(param)
-        oof_df, test_df = lightgbm_wrapper.train_predict(train_df, test_df)
+        self.models=[]
 
-        oof_preds.append(oof_df.sort_values('object_id')[f'{target_col}_lgb_predict'].values)
-        test_preds.append(test_df.sort_values('object_id')[f'{target_col}_lgb_predict'].values)
+        
+    def set_param(self, param):
+        self.param = param
 
-        score = metrics.mean_squared_error(oof_df[target_col], np.round(oof_df[f'{target_col}_lgb_predict']))
-        scores.append(score**0.5)
-        print(f'random_state {int(random_state)}   score {score:.5f}')
-        models.append(lightgbm_wrapper.models)
-
-    print(f"mean score {np.mean(scores):.5f}")
-    oof_preds = np.mean(oof_preds, axis=0)
-    test_preds = np.mean(test_preds, axis=0)   
-    print(f"execute time ::{time.time()-tm:.4f}")
-    return oof_preds, test_preds, scores, models
+    def save_model(self, name=''):
+        with open(f'{name}_lgbParam.pickle', 'wb') as f:
+            pickle.dump(f)
+    
+    def train(self, train_df):
+        """
+        Fold のカラム名は　基本Fold
+        """        
+            
+        Folds = set(train_df["Fold"])
+        valid = []
+        
+        for fold in Folds:
+            train_data = lgb.Dataset(train_df.loc[train_df["Fold"]!=fold, self.features], train_df.loc[train_df["Fold"]!=fold, self.target])
+            valid_df = train_df[train_df["Fold"]==fold]
+            valid_data = lgb.Dataset(valid_df[self.features], valid_df[self.target])
+            model = lgb.train(self.param,  train_data,  num_boost_round=3000,  valid_sets=[train_data, valid_data], 
+                              #feval=lgb_f1_score,
+                              verbose_eval=500, early_stopping_rounds=200, categorical_feature=self.cat_cols)
+            valid_preds = model.predict(valid_df[self.features])
+            for i in range(self.num_class):
+                valid_df[f'{self.target}{i}_lgb_predict'] = valid_preds[:,i]
+                
+            valid.append(valid_df)
+            self.models.append(model)
+            
+        train_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
+        return train_df
