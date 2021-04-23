@@ -31,15 +31,16 @@ class Null_Importance:
                 Train Null Importance   {i+1}
                 
                 """ )
-                for trn, val in k.split(train_X, train_y):
+                for trn, val in k.split(self.train_X, self.train_y):
                     trn_X, val_X = self.train_X.iloc[trn,:], self.train_X.iloc[val,:]
-                    trn_y, val_y = _train_y.iloc[trn].astype(int), _train_y.iloc[val].astype(int)
+                    trn_y, val_y = _train_y.iloc[trn], _train_y.iloc[val]
                     train_set = lgb.Dataset(trn_X, trn_y)
                     val_set = lgb.Dataset(val_X, val_y)
 
                     model = lgb.train(params=self.PARAMS,
                                       train_set=train_set, 
                                       valid_sets=[train_set, val_set],
+                                      categorical_feature=self.cat_cols,
                                     num_boost_round=3000, early_stopping_rounds=200, verbose_eval=500)
                     
                     preds = model.predict(val_X)
@@ -62,9 +63,10 @@ class Null_Importance:
         null_importance = null_importance.T
         return null_importance
 
-    def all_flow(self):
+    def all_flow(self, cat_cols):
         score=[]
         importance=[]
+        self.cat_cols = cat_cols
 
         importance_df=pd.DataFrame()
         importance_df['col'] = self.train_X.columns
@@ -78,11 +80,12 @@ class Null_Importance:
 
         for trn, val in k.split(self.train_X, self.train_y):
             trn_X, val_X = self.train_X.iloc[trn,:], self.train_X.iloc[val,:]
-            trn_y, val_y = self.train_y.iloc[trn].astype(int), self.train_y.iloc[val].astype(int)
+            trn_y, val_y = self.train_y.iloc[trn], self.train_y.iloc[val]
             train_set = lgb.Dataset(trn_X, trn_y)
             val_set = lgb.Dataset(val_X, val_y)
             
             model = lgb.train(params=self.PARAMS, train_set=train_set, valid_sets=[train_set, val_set],
+                            categorical_feature=self.cat_cols,
                             num_boost_round=3000, early_stopping_rounds=200, verbose_eval=500)
             #preds = model.predict(val_X)
             
