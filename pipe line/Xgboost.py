@@ -83,7 +83,7 @@ class XGBoost_wrapper:
         train_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
         return train_df
 
-class MaltiClassXGBoost_wrapper:
+class MultiClassXGBoost_wrapper:
     def __init__(self, features, target, num_class):
         self.param = {
             'objective':'binary:logistic',

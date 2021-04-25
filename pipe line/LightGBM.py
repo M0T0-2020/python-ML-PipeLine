@@ -70,7 +70,7 @@ class LightGBM_wrapper:
         train_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
         return train_df
 
-class MaltiClassLightGBM_wrapper:
+class MultiClassLightGBM_wrapper:
     def __init__(self, features, target, num_class, cat_cols="auto"):
         self.param = {
             'boosting_type': 'gbdt',
