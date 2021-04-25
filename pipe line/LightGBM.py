@@ -36,8 +36,16 @@ class LightGBM_wrapper:
         self.param = param
 
     def save_model(self, name=''):
-        with open(f'{name}_lgbParam.pickle', 'wb') as f:
-            pickle.dump(f)
+        with open(f'{name}_lgb_wrapper.pickle', 'wb') as f:
+            pickle.dump(self, f)
+    
+    def predict(self, test_df):
+        preds = []
+        for m in self.models:
+            preds.append(m.predict(test_df[self.features]))
+        test_df[f'{self.target}_lgb_predict'] = np.mean(preds, axis=0)
+        return test_df
+
     
     def train_predict(self, train_df):
         """
@@ -86,8 +94,18 @@ class MaltiClassLightGBM_wrapper:
         self.param = param
 
     def save_model(self, name=''):
-        with open(f'{name}_lgbParam.pickle', 'wb') as f:
-            pickle.dump(f)
+        with open(f'{name}_malticlass_lgb_wrapper.pickle', 'wb') as f:
+            pickle.dump(self, f)
+
+    def predict(self, test_df):
+        for i in range(self.num_class):
+            test_df[f'{self.target}{i}_lgb_predict'] = 0
+        
+        for m in self.models:
+            preds = m.predict(test_df[self.features])
+            for i in range(self.num_class):
+                test_df[f'{self.target}{i}_lgb_predict'] = preds[:,i]/len(self.models)
+        return test_df
     
     def train(self, train_df):
         """

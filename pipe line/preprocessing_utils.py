@@ -9,7 +9,18 @@ from sklearn.neighbors import KNeighborsClassifier
 from warnings import filterwarnings
 filterwarnings('ignore')
 
-
+class OneHotEncoder:
+    def fit(self, series):
+        self.unique = list(set(series))
+        return self
+    
+    def transform(self, series):
+        onehot = pd.get_dummies(series).reindex(columns=self.unique).fillna(0).astype(int)
+        return onehot
+    
+    def fit_transform(self, series):
+        return self.fit(series).transform(series)
+        
 class CountEncoder:
     def fit(self, series):
         self.counts = series.groupby(series).count()
