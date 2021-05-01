@@ -117,11 +117,15 @@ class TfidfVectorFeatureExtractor:
         text = " ".join([self.porter.stem(char) for char in text.split(' ') if char not in self.stop_words])
         return text
     
-    def vectorize_tfidf(self, df):
+    def fit(self, df):
         df[self.col] = df[self.col].apply(lambda x: self.change_text(x))
-        X = self.vec_tfidf.fit_transform(df[self.col].values)
+        self.vec_tfidf.fit(df[self.col].values)
+        
+    def transforme(self, df):
+        X = self.vec_tfidf.transform(df[self.col].values)
         X = pd.DataFrame(X.toarray(), columns=self.vec_tfidf.get_feature_names())
         return X
+
 
 class CountVectorFeatureExtractor:
     def __init__(self, col):
@@ -139,8 +143,11 @@ class CountVectorFeatureExtractor:
         text = " ".join([self.porter.stem(char) for char in text.split(' ') if char not in self.stop_words])
         return text
     
-    def vectorize_tfidf(self, df):
+    def fit(self, df):
         df[self.col] = df[self.col].apply(lambda x: self.change_text(x))
-        X = self.vec_count.fit_transform(df[self.col].values)
+        self.vec_count.fit(df[self.col].values)
+        
+    def transforme(self, df):
+        X = self.vec_count.transform(df[self.col].values)
         X = pd.DataFrame(X.toarray(), columns=self.vec_count.get_feature_names())
         return X
