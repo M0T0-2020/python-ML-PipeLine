@@ -41,7 +41,7 @@ class Optuna_LightGBM:
             
             'boosting_type': 'gbdt',
             
-            #'objective': 'multiclass','metric': 'multiclass', 'num_class':4,
+            #'objective': 'multiclass','metric': 'multiclass', 'num_class':4,"class_weight":"balanced",
             #'metric': 'rmse',  'metric': 'tweedie',
             #'objective': 'tweedie',
             #'tweedie_variance_power': trial.suggest_uniform('tweedie_variance_power', 1.01, 1.8),

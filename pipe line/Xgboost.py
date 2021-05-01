@@ -80,8 +80,8 @@ class XGBoost_wrapper:
             valid.append(val_df)
             self.models.append(model)
             gc.collect()        
-        train_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
-        return train_df
+        oof_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
+        return oof_df
 
 class MultiClassXGBoost_wrapper:
     def __init__(self, features, target, num_class):
@@ -147,6 +147,6 @@ class MultiClassXGBoost_wrapper:
             valid.append(val_df)
             self.models.append(model)
             gc.collect()        
-        train_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
-        return train_df
-
+        oof_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
+        return oof_df
+        

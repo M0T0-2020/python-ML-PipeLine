@@ -20,7 +20,7 @@ class OneHotEncoder:
     
     def fit_transform(self, series):
         return self.fit(series).transform(series)
-        
+
 class CountEncoder:
     def fit(self, series):
         self.counts = series.groupby(series).count()
@@ -33,22 +33,35 @@ class CountEncoder:
         return self.fit(series).transform(series)
     
 class KNNFeatureExtractor:
-        def __init__(self, n_neighbors=5):
+        def __init__(self, N_CLASSES, n_neighbors=5):
             self.knn = KNeighborsClassifier(n_neighbors + 1)
-
+            self.N_CLASSES = N_CLASSES
         def fit(self, X, y):
             self.knn.fit(X, y)
             self.y = y if isinstance(y, np.ndarray) else np.array(y)
             return self
+        
+        def _get_column_names(self):
+            cols = []
+            score_columns = [f"knn_score_class{c}" for c in range(self.N_CLASSES)]
+            cols+=score_columns
+            cols.append("max_knn_scores")
+            cols += [f"sub_max_knn_scores_{col}" for col in score_columns]
+            for i, col1 in enumerate(score_columns):
+                for j, col2 in enumerate(score_columns[i+1:], i+1):
+                    if {i, j} & {8, 10}:
+                        cols.append(f"sub_{col1}_{col2}")
+            cols.append("sum_knn_scores")
+            return cols
 
         def transform(self, X, is_train_data):
             distances, indexes = self.knn.kneighbors(X)
             distances = distances[:, 1:] if is_train_data else distances[:, :-1]
             indexes = indexes[:, 1:] if is_train_data else indexes[:, :-1]
             labels = self.y[indexes]
-            score_columns = [f"knn_score_class{c:02d}" for c in range(N_CLASSES)]
+            score_columns = [f"knn_score_class{c}" for c in range(self.N_CLASSES)]
             df_knn = pd.DataFrame(
-                [np.bincount(labels_, distances_, N_CLASSES) for labels_, distances_ in zip(labels, 1.0 / distances)],
+                [np.bincount(labels_, distances_, self.N_CLASSES) for labels_, distances_ in zip(labels, 1.0 / distances)],
                 columns=score_columns
             )
             df_knn["max_knn_scores"] = df_knn.max(1)
@@ -63,9 +76,9 @@ class KNNFeatureExtractor:
             return df_knn
         
 class UMapFeatureExtractor:
-    def __init__(self, n_components):
+    def __init__(self, n_components, random_state=42):
         self.n_components = n_components
-        self.reducer = umap.UMAP(n_components=n_components, random_state=42)
+        self.reducer = umap.UMAP(n_components=n_components, random_state=random_state)
         
     def fit(self, X):
         self.reducer.fit(X)
@@ -79,9 +92,9 @@ class UMapFeatureExtractor:
         return df
         
 class KMeansFeatureExtractor:
-    def __init__(self, n_clusters):
+    def __init__(self, n_clusters, random_state=42):
         self.n_clusters = n_clusters
-        self.k = KMeans(n_clusters=n_clusters, random_state=42)
+        self.k = KMeans(n_clusters=n_clusters, random_state=random_state)
         
     def fit(self, X):
         self.k.fit(X)
@@ -98,7 +111,10 @@ class StandardScalerFeatureExtractor:
     def __init__(self, cols):
         self.cols = cols
         self.std_dscalers = {}
-        
+
+    def _get_column_names(self):
+        return [f"standardscaled_{col}" for col in self.cols]
+
     def fit(self, df):
         for col in self.cols:
             std_dscaler = StandardScaler()
@@ -109,19 +125,28 @@ class StandardScalerFeatureExtractor:
         for col, std_dscaler in self.std_dscalers.items():
             df[f"standardscaled_{col}"] = std_dscaler.transform(df[[col]])[:, 0]
         return df
-    
+
 class KBinsDiscreteFeatureExtractor:
+    """
+    'uniform', 'quantile', 'kmeans'
+    """
     def __init__(self, cols, n_bins=10, encode="ordinal", strategy="uniform"):
         self.cols = cols
-        self.kbin = KBinsDiscretizer(n_bins=n_bins, encode=encode, strategy=strategy)
-        
+        self.n_bins = n_bins if type(n_bins)!=int else [n_bins for _ in range(len(cols))]
+        self.kbin = KBinsDiscretizer(n_bins=self.n_bins, encode=encode, strategy=strategy)
+        self.encode=encode
+        self.strategy=strategy
+    
+    def _get_column_names(self):
+        return [f"k{bins}bins{self.strategy}category_{self.cols[i]}" for i, bins in zip(range(len(self.cols)), self.n_bins)]
+    
     def fit(self, df):
         self.kbin.fit(df[self.cols].fillna(0))
         
     def transform(self, df):
         value = self.kbin.transform(df[self.cols].fillna(0))
-        for i in range(value.shape[-1]):
-            df[f"kbinscategory_{self.cols[i]}"] = value[:,i]
+        for i, bins in zip(range(len(self.cols)), self.n_bins):
+            df[f"k{bins}bins{self.strategy}category_{self.cols[i]}"] = value[:,i]
         return df
     
 class GroupFeatureExtractor:  # 参考: https://signate.jp/competitions/449/discussions/lgbm-baseline-lb06240
@@ -186,4 +211,3 @@ class GroupFeatureExtractor:  # 参考: https://signate.jp/competitions/449/disc
     def fit_transform(self, df_train, y=None):
         self.fit(df_train, y=y)
         return self.transform(df_train)  
-

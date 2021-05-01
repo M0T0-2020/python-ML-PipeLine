@@ -67,8 +67,8 @@ class LightGBM_wrapper:
             valid.append(valid_df)
             self.models.append(model)
             
-        train_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
-        return train_df
+        oof_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
+        return oof_df
 
 class MultiClassLightGBM_wrapper:
     def __init__(self, features, target, num_class, cat_cols="auto"):
@@ -120,7 +120,10 @@ class MultiClassLightGBM_wrapper:
             valid_df = train_df[train_df["Fold"]==fold]
             valid_data = lgb.Dataset(valid_df[self.features], valid_df[self.target])
             model = lgb.train(self.param,  train_data,  num_boost_round=3000,  valid_sets=[train_data, valid_data], 
-                              #feval=lgb_f1_score,
+                              
+                              #feval=my__metircs,
+                              #fobj=my_obj,
+
                               verbose_eval=500, early_stopping_rounds=200, categorical_feature=self.cat_cols)
             valid_preds = model.predict(valid_df[self.features])
             for i in range(self.num_class):
@@ -129,5 +132,5 @@ class MultiClassLightGBM_wrapper:
             valid.append(valid_df)
             self.models.append(model)
             
-        train_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
-        return train_df
+        oof_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
+        return oof_df
