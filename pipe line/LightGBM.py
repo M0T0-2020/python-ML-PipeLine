@@ -47,7 +47,7 @@ class LightGBM_wrapper:
         return test_df
 
     
-    def train_predict(self, train_df):
+    def train(self, train_df):
         """
         Fold のカラム名は　基本Fold
         """        
