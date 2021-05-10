@@ -46,12 +46,11 @@ class KNNFeatureExtractor:
             score_columns = [f"knn_score_class{c}" for c in range(self.N_CLASSES)]
             cols+=score_columns
             cols.append("max_knn_scores")
+            cols.append("sum_knn_scores")
             cols += [f"sub_max_knn_scores_{col}" for col in score_columns]
             for i, col1 in enumerate(score_columns):
                 for j, col2 in enumerate(score_columns[i+1:], i+1):
-                    if {i, j} & {8, 10}:
-                        cols.append(f"sub_{col1}_{col2}")
-            cols.append("sum_knn_scores")
+                    cols.append(f"sub_{col1}_{col2}")
             return cols
 
         def transform(self, X, is_train_data):
@@ -65,14 +64,12 @@ class KNNFeatureExtractor:
                 columns=score_columns
             )
             df_knn["max_knn_scores"] = df_knn.max(1)
+            df_knn["sum_knn_scores"] = df_knn.sum(1)
             for col in score_columns:
                 df_knn[f"sub_max_knn_scores_{col}"] = df_knn["max_knn_scores"] - df_knn[col]
             for i, col1 in enumerate(score_columns):
                 for j, col2 in enumerate(score_columns[i+1:], i+1):
-                    if {i, j} & {8, 10}:
-                        df_knn[f"sub_{col1}_{col2}"] = df_knn[col1] - df_knn[col2]
-            df_knn["sum_knn_scores"] = df_knn.sum(1)
-
+                    df_knn[f"sub_{col1}_{col2}"] = df_knn[col1] - df_knn[col2]
             return df_knn
         
 class UMapFeatureExtractor:

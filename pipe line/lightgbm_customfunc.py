@@ -3,7 +3,25 @@ import lightgbm as lgb
 import pandas as pd
 import numpy as np
 from typing import Tuple
+from sklearn import metrics
 
+def softmax(predt):
+    return np.exp(predt)/np.sum(np.exp(predt), axis=1).reshape(-1,1)
+
+###
+#f1_score
+###
+calc_f1 = lambda y, p: metrics.f1_score(y, p.argmax(axis=1), average='macro')
+def macro_f1(pred: np.array, data: lgb.Dataset):
+    y = data.get_label()
+    pred = pred.reshape(-1, len(y)).T  # -> (N, num_class)
+
+    f1 = calc_f1(y, pred)
+    return 'macro_f1', f1, True  # True means "higher is better"
+
+###
+#top2_accuray
+###
 def top2_accuray_lgb(predt: np.ndarray, data: lgb.Dataset, threshold: float=0.5,) -> Tuple[str, float, bool]:
     s_0=31
     s_1=int(len(predt)/s_0)
@@ -15,9 +33,6 @@ def top2_accuray_lgb(predt: np.ndarray, data: lgb.Dataset, threshold: float=0.5,
 
     # # eval_name, eval_result, is_higher_better
     return 'top2_accuray', float(accuracy), True
-
-def softmax(predt):
-    return np.exp(predt)/np.sum(np.exp(predt), axis=1).reshape(-1,1)
 
 def my_logistic_obj(predt: np.ndarray, data: lgb.Dataset) -> Tuple[np.ndarray, np.ndarray]:
     w_dict = {4.0: 0.7590094259401983, 12.0: 0.8095400631514924, 13.0: 0.8225826394000231, 14.0: 0.8549528042689977, 30.0: 0.8549528042689977, 11.0: 0.8790811910945177, 0.0: 0.8797399286456303, 6.0: 0.8981458256286846, 19.0: 0.91289269651962, 8.0: 0.9193468859159446, 23.0: 0.9257599332783142, 9.0: 0.9466869195345441, 28.0: 0.9616129930949363, 5.0: 0.9636161932936556, 22.0: 0.9670600916375024, 27.0: 0.9896031798239419, 20.0: 0.998140820116188, 15.0: 1.0347287996927568, 10.0: 1.0440428983274967, 17.0: 1.0568262071050216, 2.0: 1.060630426576832, 24.0: 1.0737709894542427, 7.0: 1.083904634845265, 21.0: 1.0942847373031122, 16.0: 1.0961254610380533, 1.0: 1.098000827862746, 26.0: 1.1133105616315027, 3.0: 1.199290359855132, 25.0: 1.2044053703071544, 18.0: 1.227637388888927, 29.0: 1.2703169414985653}
