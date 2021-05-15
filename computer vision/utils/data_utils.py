@@ -12,7 +12,7 @@ from PIL import Image
 import cv2
 
 
-class ImageDataset_minist(Dataset):
+class ImageDatasetGray(Dataset):
     def __init__(self, data, data_shape, img_size):
         self.data = data
         self.data_shape = data_shape
@@ -23,7 +23,14 @@ class ImageDataset_minist(Dataset):
         
     def __len__(self):  # len(Dataset)で返す値を指定
         return len(self.data)
-
+    
+    def addNewImgsize(self, size):
+        self.img_size = size
+        self.transform = transforms.Compose(
+            [transforms.Resize(self.img_size), transforms.ToTensor(), transforms.Normalize([0.5], [0.5])]
+        )
+        
+    
     def __getitem__(self, index):  # Dataset[index]で返す値を指定
         # argumentation
         x = self.data[index]
@@ -48,6 +55,12 @@ class ImageDataset(Dataset):
         # normalize [0,1]
         img = cv2.normalize(img, None, alpha=0, beta=1.0, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
         return img
+
+    def addNewImgsize(self, size):
+        self.img_size = size
+        self.transform = transforms.Compose(
+            [transforms.Resize(self.img_size), transforms.ToTensor()]
+        )
 
     def __len__(self):  # len(Dataset)で返す値を指定
         return len(self.img_path)
