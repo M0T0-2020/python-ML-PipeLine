@@ -60,16 +60,6 @@ class PseudoLayer(nn.Module):
     def forward(self, x):
         return x
 
-def Upscale2d(x, factor=2):
-    assert isinstance(factor, int) and factor >= 1
-    if factor == 1:
-        return x
-    s = x.size()
-    x = x.view(-1, s[1], s[2], 1, s[3], 1)
-    x = x.expand(-1, s[1], s[2], factor, s[3], factor)
-    x = x.contiguous().view(-1, s[1], s[2] * factor, s[3] * factor)
-    return x
-
 
 def getLayerNormalizationFactor(x):
     r"""

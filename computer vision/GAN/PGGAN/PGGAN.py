@@ -8,14 +8,19 @@ from torch import nn
 from models import GNet, DNet
 
 class PGGAN:
-    def __init__(self, latent_dim, depthScale0, channels, alpha=0.2, lr=0.0002, b1=0.5, b2=0.999):
+    def __init__(self, latent_dim, G_depthScale0, D_depthScale0, channels, min_dim=8, alpha=0.2, lr=0.0002, b1=0.5, b2=0.999):
         self.latent_dim, self.channels, self.alpha = latent_dim, channels, alpha
         self.lr, self.b1, self.b2 = lr, b1, b2
+
+        self.G_depth_list = []
+        self.D_depth_list = []
+        self.G_depth_list.append(G_depthScale0)
+        self.D_depth_list.append(D_depthScale0)
         
-        self.generator = GNet(latent_dim, depthScale0, initBiasToZero=True,
+        self.generator = GNet(latent_dim, G_depthScale0, initBiasToZero=True,
                               leakyReluLeak=0.2, normalization=True, generationActivation=None, 
                               dimOutput=channels, equalizedlR=True)
-        self.discriminator = DNet(depthScale0, initBiasToZero=True, leakyReluLeak=0.2, 
+        self.discriminator = DNet(D_depthScale0, initBiasToZero=True, leakyReluLeak=0.2, 
                                   sizeDecisionLayer=1, miniBatchNormalization=False, generationActivation=None,
                                   dimInput=channels, equalizedlR=True)
 
@@ -30,23 +35,26 @@ class PGGAN:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.train_cnt = 0
 
-        self.layer_num = 1
+        self.min_dim = min_dim
 
-    def addNewLayer(self, dim, layer_type):
-        self.generator.addScale(dim, layer_type)
-        self.discriminator.addScale(dim, layer_type)
+    def addNewLayer(self, layer_type):
+        G_nowlayerdim = self.G_depth_list[-1]
+        D_nowlayerdim = self.D_depth_list[-1]
+        G_newlayerdim = max(self.min_dim, G_nowlayerdim//2)
+        D_newlayerdim = max(self.min_dim, D_nowlayerdim//2)
 
+        self.generator.addScale(G_newlayerdim, layer_type)
+        self.discriminator.addScale(D_newlayerdim, layer_type)
+    
     def save_models(self, name=None, path=""):
+        g_layer_log = '_'.join(list(map(str,self.G_depth_list)))
+        d_layer_log = '_'.join(list(map(str,self.D_depth_list)))
         if not name:
-            with open(f"{path}generator{self.train_cnt}.pt", 'wb') as f:
-                pickle.dump(self.generator, f)
-            with open(f"{path}discriminator{self.train_cnt}.pt", 'wb') as f:
-                pickle.dump(self.discriminator, f)
+            torch.save(self.generator.state_dict(), f"{path}generator{self.train_cnt}_{g_layer_log}.pt")
+            torch.save(self.discriminator.state_dict(), f"{path}discriminator{self.train_cnt}_{d_layer_log}.pt")
         else:
-            with open(f"{path}generator{name}_{self.train_cnt}.pt", 'wb') as f:
-                pickle.dump(self.generator, f)
-            with open(f"{path}discriminator{name}_{self.train_cnt}.pt", 'wb') as f:
-                pickle.dump(self.discriminator, f)
+            torch.save(self.generator.state_dict(), f"{path}generator{name}_{g_layer_log}.pt")
+            torch.save(self.discriminator.state_dict(), f"{path}discriminator{name}_{d_layer_log}.pt")
 
     def compute_loss(self, img):
         batch_size = img.size(0)

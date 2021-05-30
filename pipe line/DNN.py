@@ -5,6 +5,13 @@ from torch import nn
 from torch import optim
 from torch import cuda
 
+def count_nn_parameters(net):
+    params = 0
+    for p in net.parameters():
+        if p.requires_grad:
+            params += p.numel()
+    return params
+
 class Model_Trainer:
     def __init__(self):
         self.device =  'cuda' if cuda.is_available() else 'cpu'

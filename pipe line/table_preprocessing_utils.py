@@ -1,79 +1,124 @@
 import pandas as pd
 import numpy as np
+import os, sys
+from tqdm import tqdm
+import gc, time, random, math
+import numpy as np
+import pandas as pd
+from pandarallel import pandarallel
+from joblib import Parallel, delayed
 
-from sklearn.preprocessing import StandardScaler, LabelEncoder, KBinsDiscretizer
 import umap
+from sklearn.preprocessing import StandardScaler, LabelEncoder, KBinsDiscretizer
 from sklearn.cluster import KMeans
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.preprocessing import TfidfVectorizer, CountVectorizer
 from sklearn.neighbors import KNeighborsClassifier
 
 from warnings import filterwarnings
 filterwarnings('ignore')
 
-class OneHotEncoder:
-    def fit(self, series):
-        self.unique = list(set(series))
+class BaseTransformer(BaseEstimator, TransformerMixin):
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        return self
+
+class OneHotEncoder(BaseTransformer):
+    def __init__(self, cols):
+        self.cols = cols
+
+    def fit(self, X):
+        self.unique = {}
+        for col in self.cols:
+            self.unique[col] = list(set(X[col]))
+        return self
+
+    def _get_column_names(self):
+        col_names = []
+        for col in self.cols:
+            for cat in self.unique[col]:
+                col_names.append(f"{col}_{cat}")
+        return col_names
+
+    def transform(self, X):
+        for col in self.cols:
+            series = X[col]
+            onehot = pd.get_dummies(series).reindex(columns=self.unique).fillna(0).astype(int)
+            onehot.columns = [f"{col}_{cat}" for cat in onehot.columns]
+            X = pd.concat([X, onehot], axis=1)
+        return X
+
+class CountEncoder(BaseTransformer):
+    def __init__(self, cols):
+        self.cols = cols
+
+    def _get_column_names(self):
+        col_names = []
+        for col in self.cols:
+            col_names.append(f"{col}_countenc")
+        return col_names
+
+    def fit(self, X):
+        self.counts = {}
+        for col in self.cols:
+            self.counts[col] = X[col].value_counts()
         return self
     
-    def transform(self, series):
-        onehot = pd.get_dummies(series).reindex(columns=self.unique).fillna(0).astype(int)
-        return onehot
+    def transform(self, X):
+        for col in self.cols:
+            X[f"{col}_countenc"] = X[col].map(self.counts[col]).fillna(0)
+        return X
     
-    def fit_transform(self, series):
-        return self.fit(series).transform(series)
-
-class CountEncoder:
-    def fit(self, series):
-        self.counts = series.groupby(series).count()
+class KNNFeatureExtractor(BaseTransformer):
+    def __init__(self, N_CLASSES, n_neighbors=5):
+        self.knn = KNeighborsClassifier(n_neighbors + 1)
+        self.N_CLASSES = N_CLASSES
+        self.is_train_data = True
+    
+    def set_is_train_data(self, is_train_data):
+        self.is_train_data = is_train_data
+        
+    def fit(self, X, y):
+        self.knn.fit(X, y)
+        self.y = y if isinstance(y, np.ndarray) else np.array(y)
         return self
-    
-    def transform(self, series):
-        return series.map(self.counts).fillna(0)
-    
-    def fit_transform(self, series):
-        return self.fit(series).transform(series)
-    
-class KNNFeatureExtractor:
-        def __init__(self, N_CLASSES, n_neighbors=5):
-            self.knn = KNeighborsClassifier(n_neighbors + 1)
-            self.N_CLASSES = N_CLASSES
-        def fit(self, X, y):
-            self.knn.fit(X, y)
-            self.y = y if isinstance(y, np.ndarray) else np.array(y)
-            return self
         
-        def _get_column_names(self):
-            cols = []
-            score_columns = [f"knn_score_class{c}" for c in range(self.N_CLASSES)]
-            cols+=score_columns
-            cols.append("max_knn_scores")
-            cols.append("sum_knn_scores")
-            cols += [f"sub_max_knn_scores_{col}" for col in score_columns]
-            for i, col1 in enumerate(score_columns):
-                for j, col2 in enumerate(score_columns[i+1:], i+1):
-                    cols.append(f"sub_{col1}_{col2}")
-            return cols
+    def _get_column_names(self):
+        cols = []
+        score_columns = [f"knn_score_class{c}" for c in range(self.N_CLASSES)]
+        cols+=score_columns
+        cols.append("max_knn_scores")
+        cols.append("sum_knn_scores")
+        cols += [f"sub_max_knn_scores_{col}" for col in score_columns]
+        for i, col1 in enumerate(score_columns):
+            for j, col2 in enumerate(score_columns[i+1:], i+1):
+                cols.append(f"sub_{col1}_{col2}")
+        return cols
 
-        def transform(self, X, is_train_data):
-            distances, indexes = self.knn.kneighbors(X)
-            distances = distances[:, 1:] if is_train_data else distances[:, :-1]
-            indexes = indexes[:, 1:] if is_train_data else indexes[:, :-1]
-            labels = self.y[indexes]
-            score_columns = [f"knn_score_class{c}" for c in range(self.N_CLASSES)]
-            df_knn = pd.DataFrame(
-                [np.bincount(labels_, distances_, self.N_CLASSES) for labels_, distances_ in zip(labels, 1.0 / distances)],
-                columns=score_columns
-            )
-            df_knn["max_knn_scores"] = df_knn.max(1)
-            df_knn["sum_knn_scores"] = df_knn.sum(1)
-            for col in score_columns:
-                df_knn[f"sub_max_knn_scores_{col}"] = df_knn["max_knn_scores"] - df_knn[col]
-            for i, col1 in enumerate(score_columns):
-                for j, col2 in enumerate(score_columns[i+1:], i+1):
-                    df_knn[f"sub_{col1}_{col2}"] = df_knn[col1] - df_knn[col2]
-            return df_knn
+    def transform(self, X):
+        distances, indexes = self.knn.kneighbors(X)
+        distances = distances[:, 1:] if self.is_train_data else distances[:, :-1]
+        indexes = indexes[:, 1:] if self.is_train_data else indexes[:, :-1]
+        labels = self.y[indexes]
+        score_columns = [f"knn_score_class{c}" for c in range(self.N_CLASSES)]
+        df_knn = pd.DataFrame(
+            [np.bincount(labels_, distances_, self.N_CLASSES) for labels_, distances_ in zip(labels, 1.0 / distances)],
+            columns=score_columns
+        )
+        df_knn["max_knn_scores"] = df_knn.max(1)
+        df_knn["sum_knn_scores"] = df_knn.sum(1)
+        for col in score_columns:
+            df_knn[f"sub_max_knn_scores_{col}"] = df_knn["max_knn_scores"] - df_knn[col]
+        for i, col1 in enumerate(score_columns):
+            for j, col2 in enumerate(score_columns[i+1:], i+1):
+                df_knn[f"sub_{col1}_{col2}"] = df_knn[col1] - df_knn[col2]
+        return df_knn
         
-class UMapFeatureExtractor:
-    def __init__(self, n_components, random_state=42):
+class UMapFeatureExtractor(BaseTransformer):
+    def __init__(self, cols, n_components, random_state=42):
         self.n_components = n_components
         self.reducer = umap.UMAP(n_components=n_components, random_state=random_state)
         
@@ -88,7 +133,7 @@ class UMapFeatureExtractor:
         df = pd.DataFrame(df, columns=[f"umap_feature_{i}" for i in range(self.n_components)])
         return df
         
-class KMeansFeatureExtractor:
+class KMeansFeatureExtractor(BaseTransformer):
     def __init__(self, n_clusters, random_state=42):
         self.n_clusters = n_clusters
         self.k = KMeans(n_clusters=n_clusters, random_state=random_state)
@@ -104,7 +149,7 @@ class KMeansFeatureExtractor:
         df = pd.DataFrame(df, columns=[f"kmeans_feature"])
         return df
     
-class StandardScalerFeatureExtractor:
+class StandardScalerFeatureExtractor(BaseTransformer):
     def __init__(self, cols):
         self.cols = cols
         self.std_dscalers = {}
@@ -123,7 +168,7 @@ class StandardScalerFeatureExtractor:
             df[f"standardscaled_{col}"] = std_dscaler.transform(df[[col]])[:, 0]
         return df
 
-class KBinsDiscreteFeatureExtractor:
+class KBinsDiscreteFeatureExtractor(BaseTransformer):
     """
     'uniform', 'quantile', 'kmeans'
     """
@@ -137,16 +182,17 @@ class KBinsDiscreteFeatureExtractor:
     def _get_column_names(self):
         return [f"k{bins}bins{self.strategy}category_{self.cols[i]}" for i, bins in zip(range(len(self.cols)), self.n_bins)]
     
-    def fit(self, df):
-        self.kbin.fit(df[self.cols].fillna(0))
+    def fit(self, X):
+        self.kbin.fit(X[self.cols].fillna(0))
         
-    def transform(self, df):
-        value = self.kbin.transform(df[self.cols].fillna(0))
+    def transform(self, X):
+        value = self.kbin.transform(X[self.cols].fillna(0))
         for i, bins in zip(range(len(self.cols)), self.n_bins):
-            df[f"k{bins}bins{self.strategy}category_{self.cols[i]}"] = value[:,i]
-        return df
+            X[f"k{bins}bins{self.strategy}category_{self.cols[i]}"] = value[:,i]
+        return X
     
-class GroupFeatureExtractor:  # 参考: https://signate.jp/competitions/449/discussions/lgbm-baseline-lb06240
+class GroupFeatureExtractor(BaseTransformer):
+    # 参考: https://signate.jp/competitions/449/discussions/lgbm-baseline-lb06240
     EX_TRANS_METHODS = ["deviation", "zscore"]
     
     def __init__(self, group_key, group_values, agg_methods):
