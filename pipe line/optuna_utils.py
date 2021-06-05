@@ -27,13 +27,13 @@ class Optuna_LightGBM:
         self.df = df
         self.features = features
         self.cat_cols = cat_cols
-        self.target = target_colname
+        self.target = target
         
     
     def make_score(self, y, preds):
-        s_1=1 - metrics.mean_squared_error(y, preds)
+        s =  metrics.mean_squared_error(y, preds)
 
-        return s_1
+        return s
 
     def objective(self, trial):
                         
@@ -66,7 +66,7 @@ class Optuna_LightGBM:
         for i in range(n):
             k = StratifiedKFold(n_splits=5, random_state=i, shuffle=True)
 
-            for trn, val in k.split(self.data, self.data[self.target]):
+            for trn, val in k.split(self.df, self.df[self.target]):
                 train_df = self.df.iloc[trn,:]
                 val_df = self.df.iloc[val,:]
                 train_set= lgb.Dataset(train_df[self.features],  train_df[self.target])
@@ -136,7 +136,7 @@ class Optuna_XGBoost:
         for i in range(n):
             k = StratifiedKFold(n_splits=5, random_state=i, shuffle=True)
 
-            for trn, val in k.split(self.data, self.data[self.target]):
+            for trn, val in k.split(self.df, self.df[self.target]):
                 trn_df = self.df.iloc[trn,:]
                 val_df = self.df.iloc[val,:]
                 train_data = xgb.DMatrix(trn_df[self.features].fillna(-999), label=trn_df[ self.target], missing=-999)

@@ -18,7 +18,7 @@ class LightGBM_wrapper:
     def __init__(self, features, target, cat_cols="auto"):
         self.param = {
             'boosting_type': 'gbdt',
-            "objective":"xentropy",
+            "objective":"rmse",
             'n_estimators': 1400, 'boost_from_average': False,'verbose': -1,'random_state':42,
     
             'max_bin': 82, 'subsample': 0.4507168737623794, 'subsample_freq': 0.6485534887326423,
@@ -31,7 +31,10 @@ class LightGBM_wrapper:
         self.cat_cols = cat_cols 
 
         self.models=[]
-        
+    
+    def get_importance(self, importance_type='gain'):
+        return np.mean([model.feature_importance(importance_type) for model in self.models], axis=0)
+
     def set_param(self, param):
         self.param = param
 
@@ -58,7 +61,7 @@ class LightGBM_wrapper:
             train_data = lgb.Dataset(train_df.loc[train_df["Fold"]!=fold, self.features], train_df.loc[train_df["Fold"]!=fold, self.target])
             valid_df = train_df[train_df["Fold"]==fold]
             valid_data = lgb.Dataset(valid_df[self.features], valid_df[self.target])
-            model = lgb.train(self.param,  train_data,  num_boost_round=3000,  valid_sets=[train_data, valid_data], 
+            model = lgb.train(self.param,  train_data,  num_boost_round=99999,  valid_sets=[train_data, valid_data], 
                               #feval=lgb_f1_score,
                               verbose_eval=500, early_stopping_rounds=200, categorical_feature=self.cat_cols)
             

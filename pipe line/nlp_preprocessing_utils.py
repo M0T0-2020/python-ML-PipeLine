@@ -6,7 +6,7 @@ import pandas as pd
 from pandarallel import pandarallel
 
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import TfidfVectorizer, CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from joblib import Parallel, delayed
 
 import torch
@@ -66,27 +66,27 @@ class BertSequenceVectorizer:
     def __init__(self):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_name = 'bert-base-uncased'
-        self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = transformers.BertTokenizer.from_pretrained(self.model_name)
         self.bert_model = transformers.BertModel.from_pretrained(self.model_name)
         self.bert_model = self.bert_model.to(self.device)
         self.max_len = 128
-
+        self.output_vec_size = 768
 
     def vectorize(self, sentence : str) -> np.array:
-        inp = self.tokenizer.encode(sentence)
-        len_inp = len(inp)
+        inputs = self.tokenizer.encode_plus(
+            sentence,
+            add_special_tokens = True, # [CLS],[SEP]を入れるか
+            max_length = self.max_len, # paddingとtrancation(切り出し)を使って、単語数をそろえる
+            padding = True, # ブランク箇所に[PAD]を入れる
+            truncation = True, # 切り出し機能。例えばmax_length10とかにすると、最初の10文字だけにしてくれる機能。入れないと怒られたので、入れておく
+            return_tensors = 'pt',
 
-        if len_inp >= self.max_len:
-            inputs = inp[:self.max_len]
-            masks = [1] * self.max_len
-        else:
-            inputs = inp + [0] * (self.max_len - len_inp)
-            masks = [1] * len_inp + [0] * (self.max_len - len_inp)
+        )
 
-        inputs_tensor = torch.tensor([inputs], dtype=torch.long).to(self.device)
-        masks_tensor = torch.tensor([masks], dtype=torch.long).to(self.device)
-
-        bert_out = self.bert_model(inputs_tensor, masks_tensor)
+        for key, value in inputs.items():
+            inputs[key] = value.to(self.device)
+            
+        bert_out = self.bert_model(**inputs)
         seq_out, pooled_out = bert_out['last_hidden_state'], bert_out['pooler_output']
 
         if torch.cuda.is_available():    

@@ -41,7 +41,7 @@ class Null_Importance:
                 val_set = lgb.Dataset(val_df[features], val_y)
                 model = lgb.train(params=self.PARAMS,
                 train_set=train_set, valid_sets=[train_set, val_set], categorical_feature=self.cat_cols,
-                num_boost_round=3000, early_stopping_rounds=200, verbose_eval=500)
+                num_boost_round=999999, early_stopping_rounds=200, verbose_eval=500)
                 tmp_null_importance.append(model.feature_importance('gain'))
             self.null_importance[f'null_importance_{i+1}'] = np.mean(tmp_null_importance, axis=0)
 
@@ -93,7 +93,7 @@ class Null_Importance:
             
             model = lgb.train(params=self.PARAMS, train_set=train_set, valid_sets=[train_set, val_set],
                             categorical_feature=self.cat_cols,
-                            num_boost_round=3000, early_stopping_rounds=200, verbose_eval=500)
+                            num_boost_round=999999, early_stopping_rounds=200, verbose_eval=500)
             #preds = model.predict(val_X)
             
             importance.append(model.feature_importance('gain'))
