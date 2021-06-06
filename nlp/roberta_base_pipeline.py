@@ -11,20 +11,23 @@ import transformers
 from make_optimizer import make_optimizer
 from make_scheduler import make_scheduler
 
-def convert_examples_to_features(data, tokenizer, max_len, is_test=False):
-    data = data.replace('\n', '')
+def convert_examples_to_features(sequence, tokenizer, max_len, is_test=False):
+    sequence = sequence.replace('\n', '')
     inputs = tokenizer.encode_plus(
-            data,
+            sequence,
             # [CLS],[SEP]を入れるか
             add_special_tokens = True, 
             # paddingとtrancation(切り出し)を使って、単語数をそろえる
-            max_length = 314, 
+            max_length = max_len, 
             # ブランク箇所に[PAD]を入れる
             padding = "max_length", 
             # 切り出し機能。例えばmax_length10とかにすると、最初の10文字だけにしてくれる機能。入れないと怒られたので、入れておく
             truncation = True, 
+            # output dtype is TensorLong
             return_tensors = 'pt',
-            return_token_type_ids = True
+            
+            #Do it when using two sequences as inputs.
+            #return_token_type_ids = True
         )
     
     return inputs
@@ -47,9 +50,13 @@ class DatasetRoberta(Dataset):
             excerpt, self.tokenizer, 
             self.max_len, self.is_test
         )
+        for key, value in features.items():
+            # size: (1, max_len) ->(max_len,)
+            features[key] = value.squeeze(0)
+
         if not self.is_test:
             label = self.targets[idx]
-            features["label"] = torch.tensor(label, dtype=torch.double)
+            features["labels"] = torch.tensor(label, dtype=torch.double)
         return features
         
 def make_robertaConfig(param_path, epochs, train_loader, num_labels=1):
@@ -61,10 +68,10 @@ def make_robertaConfig(param_path, epochs, train_loader, num_labels=1):
     return config
 
 class RobertaModel(nn.Module):
-    def __init__(self, config,  multisample_dropout=False, output_hidden_states=False):
+    def __init__(self, param_path, config,  multisample_dropout=False, output_hidden_states=False):
         super(RobertaModel, self).__init__()
         self.config = config
-        self.roberta = transformers.RobertaModel.from_pretrained(config.param_path, output_hidden_states=output_hidden_states)
+        self.roberta = transformers.RobertaModel.from_pretrained(param_path, output_hidden_states=output_hidden_states)
         
         #self.roberta.load_state_dict(torch.load(f'../input/commonlit-roberta-base-i/model{fold}.bin'))
         
@@ -118,9 +125,9 @@ class RobertaModel(nn.Module):
         return ((loss,) + output) if loss is not None else output
 
 class RobertaTrainer:
-    def __init__(self, config, log_interval=1, evaluate_interval=1):
+    def __init__(self, param_path, config, log_interval=1, evaluate_interval=1):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.model = RobertaModel(config, multisample_dropout=True)
+        self.model = RobertaModel(param_path, config)
 
         max_train_steps = config.epochs * config.train_loader_length
         warmup_proportion = 0
@@ -134,36 +141,83 @@ class RobertaTrainer:
         self.scalar = torch.cuda.amp.GradScaler() # GPUでの高速化。
         self.log_interval = log_interval
         self.evaluate_interval = evaluate_interval
-        self.evaluator = Evaluator(self.model, self.scalar)
         self.best_val_loss = np.inf
+        self.trn_loss_log = []
+        self.val_loss_log = []
 
-    def train(self, train_loader, valid_loader, epoch, fold):
+    def eval(self, valid_loader):
         count = 0
         losses = []
         self.model.to(self.device)
+
+        with torch.no_grad():
+            for batch_idx, batch_data in enumerate(valid_loader):
+                with torch.cuda.amp.autocast():
+                    outputs = self.model(
+                        input_ids=batch_data['input_ids'].to(self.device),
+                        attention_mask=batch_data['attention_mask'].to(self.device),
+                        #token_type_ids=batch_data['token_type_ids'].to(self.device),
+                        labels=batch_data['labels'].to(self.device),
+                        )
+
+                loss, _ = outputs[:2]
+                losses.append(loss.item())
+
+        loss = np.mean(losses)
+        self.val_loss_log.append(loss)
+        self.model.to('cpu')
+        self.model.eval()
+        return loss
+
+    def train(self, batch_data, losses, count):
+        self.model.to(self.device)
         self.model.train()
 
-        
-        for batch_idx, batch_data in enumerate(train_loader):
-            with torch.cuda.amp.autocast():
-                outputs = self.model(
-                    input_ids=batch_data['input_ids'].to(self.device),
-                    attention_mask=batch_data['attention_mask'].to(self.device),
-                    token_type_ids=batch_data['token_type_ids'].to(self.device),
-                    labels=batch_data['label'].to(self.device),
-                    )
-
+        with torch.cuda.amp.autocast():
+            outputs = self.model(
+                input_ids=batch_data['input_ids'].to(self.device),
+                attention_mask=batch_data['attention_mask'].to(self.device),
+                #token_type_ids=batch_data['token_type_ids'].to(self.device),
+                labels=batch_data['labels'].to(self.device),
+                )
             loss, _ = outputs[:2]
-            count += batch_data['label'].size(0)
+            count += batch_data['labels'].size(0)
             losses.append(loss.item())
             
             self.optimizer.zero_grad()
             self.scalar.scale(loss).backward()
             self.scalar.step(self.optimizer)
             self.scalar.update()
-
             self.scheduler.step()
+        self.model.to('cpu')
+        self.model.eval()
+        return losses, count
 
+    def load_param(self, path):
+        self.model.load_state_dict(
+            torch.load(path)
+            )
+
+    def predict(self, test_loader):
+        preds=[]
+        self.model.to(self.device)
+
+        for batch_idx, batch_data in enumerate(test_loader):
+            with torch.no_grad():
+                outputs = self.model(
+                    input_ids=batch_data['input_ids'].to(self.device),
+                    attention_mask=batch_data['attention_mask'].to(self.device),
+                    #token_type_ids=batch_data['token_type_ids'].to(self.device),
+                    )
+                preds+=outputs[0].detach().cpu()
+        self.model.to('cpu')
+        return preds
+        
+    def run(self, train_loader, valid_loader, epoch, fold):
+        count = 0
+        losses = []
+        for batch_idx, batch_data in enumerate(train_loader):
+            losses, count = self.train(batch_data, losses, count)
             if batch_idx % self.log_interval == 0:
                 _s = str(len(str(len(train_loader.sampler))))
                 ret = [
@@ -171,50 +225,14 @@ class RobertaTrainer:
                     'train_loss: {: >4.5f}'.format(np.mean(losses)),
                 ]
                 print(', '.join(ret))
-            
+                self.trn_loss_log.append(np.mean(losses))
+
             if batch_idx % self.evaluate_interval == 0:
-                loss = self.evaluator.evaluate(
-                    valid_loader, 
-                    epoch
-                )
+                loss = self.eval(valid_loader)
+                self.val_loss_log.append(loss)
+                print('Epoch: [{}] valid_loss: {: >4.5f}'.format(epoch, loss))
+
                 if loss < self.best_val_loss:
                     print("{} epoch, best epoch was updated! valid_loss: {: >4.5f}".format(epoch, loss))
                     self.best_val_loss = loss
                     torch.save(self.model.state_dict(), f"model{fold}.bin")
-
-        self.model.to('cpu')
-        return loss
-
-class Evaluator:
-    def __init__(self, model, scalar):
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.model = model
-        self.scalar = scalar
-
-    def save(self, result):
-        return None
-
-    def load(self):
-        return None
-
-    def evaluate(self, data_loader, epoch):
-        losses = []
-        self.model.to(self.device)
-        self.model.eval()
-        
-        with torch.no_grad():
-            for batch_idx, batch_data in enumerate(data_loader):
-                with torch.cuda.amp.autocast():
-                    outputs = self.model(
-                        input_ids=batch_data['input_ids'].to(self.device),
-                        attention_mask=batch_data['attention_mask'].to(self.device),
-                        token_type_ids=batch_data['token_type_ids'].to(self.device),
-                        labels=batch_data['label'].to(self.device),
-                        )
-                loss, _ = outputs[:2]
-                losses.append(loss.item())
-
-        print('----Validation Results Summary----')
-        print('Epoch: [{}] valid_loss: {: >4.5f}'.format(epoch, np.mean(losses)))
-        self.model.to('cpu')
-        return np.mean(losses)
