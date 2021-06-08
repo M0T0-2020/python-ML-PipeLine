@@ -59,32 +59,59 @@ class DatasetRoberta(Dataset):
             features["labels"] = torch.tensor(label, dtype=torch.double)
         return features
         
-def make_robertaConfig(param_path, epochs, train_loader, num_labels=1):
-    torch.manual_seed(2021)
-    torch.cuda.manual_seed(2021)
-    torch.cuda.manual_seed_all(2021)
-    config = transformers.AutoConfig.from_pretrained(param_path)
-    config.update({'num_labels':num_labels, 'param_path':param_path, 'epochs':epochs, 'train_loader_length':len(train_loader)})
+def make_robertaConfig(path, cudnn_benchmark=False, num_labels=1, seed=42):
+    import numpy as np 
+    import math, random, torch
+    
+    torch.backends.cudnn.benchmark = cudnn_benchmark
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    config = transformers.AutoConfig.from_pretrained(path)
+    config.update({'seed':seed, 'model_path':path, "num_labels":num_labels,
+                   #"optimizer_name":'AdamW',
+                   "optimizer_name":'LAMB',
+                   "sam":False,
+                   'decay_name':'cosine_warmup'})
     return config
 
+class AttentionHead(nn.Module):
+    def __init__(self, in_features, hidden_dim, num_targets):
+        super().__init__()
+        self.in_features = in_features
+        self.middle_features = hidden_dim
+
+        self.W = nn.Linear(in_features, hidden_dim)
+        self.V = nn.Linear(hidden_dim, 1)
+        self.out_features = hidden_dim
+
+    def forward(self, features):
+        att = torch.tanh(self.W(features))
+
+        score = self.V(att)
+
+        attention_weights = torch.softmax(score, dim=1)
+
+        context_vector = attention_weights * features
+        context_vector = torch.sum(context_vector, dim=1)
+
+        return context_vector
+
+
 class RobertaModel(nn.Module):
-    def __init__(self, param_path, config,  multisample_dropout=False, output_hidden_states=False):
+    def __init__(self, param_path, config, output_hidden_states=False):
         super(RobertaModel, self).__init__()
         self.config = config
         self.roberta = transformers.RobertaModel.from_pretrained(param_path, output_hidden_states=output_hidden_states)
         
-        #self.roberta.load_state_dict(torch.load(f'../input/commonlit-roberta-base-i/model{fold}.bin'))
+        self.head = AttentionHead(config.hidden_size, config.hidden_size, 1)
         
-        self.layer_norm = nn.LayerNorm(config.hidden_size)
-        if multisample_dropout:
-            self.dropouts = nn.ModuleList([
-                nn.Dropout(0.5) for _ in range(5)
-            ])
-        else:
-            self.dropouts = nn.ModuleList([nn.Dropout(0.3)])
+        self.dropout = nn.Dropout(0.1)
         self.regressor = nn.Linear(config.hidden_size, 1)
-        self._init_weights(self.layer_norm)
-        self._init_weights(self.regressor)
  
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -99,30 +126,15 @@ class RobertaModel(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
  
-    def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, labels=None):
+    def forward(self, input_ids=None, attention_mask=None, token_type_ids=None):
         outputs = self.roberta( input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,)
-        sequence_output = outputs[1]
-        sequence_output = self.layer_norm(sequence_output)
- 
-        # multi-sample dropout
-        for i, dropout in enumerate(self.dropouts):
-            if i == 0:
-                logits = self.regressor(dropout(sequence_output))
-            else:
-                logits += self.regressor(dropout(sequence_output))
-        
-        logits /= len(self.dropouts)
- 
-        # calculate loss
-        loss = None
-        if labels is not None:
-            loss_fn = torch.nn.MSELoss()
-            #　size -> (batch_size, )
-            logits = logits.view(-1).to(labels.dtype)
-            loss = torch.sqrt(loss_fn(logits, labels.view(-1)))
-        
+        sequence_output = outputs[0]
+        sequence_output = self.head(sequence_output)
+        sequence_output = self.dropout(sequence_output)
+        logits = self.regressor(sequence_output)
+
         output = (logits,) + outputs[1:]
-        return ((loss,) + output) if loss is not None else output
+        return output
 
 class RobertaTrainer:
     def __init__(self, param_path, config, log_interval=1, evaluate_interval=1):
@@ -135,35 +147,45 @@ class RobertaTrainer:
             warmup_steps = math.ceil((max_train_steps * 2) / 100)
         else:
             warmup_steps = 0
-
-        self.optimizer = make_optimizer(self.model, optimizer_name='AdamW')
-        self.scheduler = make_scheduler(self.optimizer, decay_name='cosine_warmup', t_max=max_train_steps, warmup_steps=warmup_steps)    
+        
+        self.sam = config.sam
+        self.optimizer = make_optimizer(self.model, optimizer_name=config.optimizer_name)
+        self.scheduler = make_scheduler(self.optimizer, decay_name=config.decay_name, t_max=max_train_steps, warmup_steps=warmup_steps)    
         self.scalar = torch.cuda.amp.GradScaler() # GPUでの高速化。
         self.log_interval = log_interval
         self.evaluate_interval = evaluate_interval
         self.best_val_loss = np.inf
         self.trn_loss_log = []
         self.val_loss_log = []
+    
+    def load_param(self, path):
+        self.model.load_state_dict(
+            torch.load(path)
+            )
+    def save_param(self, name):
+        torch.save(self.model.state_dict(), name)
 
     def eval(self, valid_loader):
-        count = 0
+        preds=[]
+        labels=[]
         losses = []
         self.model.to(self.device)
 
         with torch.no_grad():
             for batch_idx, batch_data in enumerate(valid_loader):
                 with torch.cuda.amp.autocast():
-                    outputs = self.model(
+                    logits, _output = self.model(
                         input_ids=batch_data['input_ids'].to(self.device),
                         attention_mask=batch_data['attention_mask'].to(self.device),
                         #token_type_ids=batch_data['token_type_ids'].to(self.device),
-                        labels=batch_data['labels'].to(self.device),
                         )
-
-                loss, _ = outputs[:2]
-                losses.append(loss.item())
-
-        loss = np.mean(losses)
+                preds+=logits.detach().view(-1).cpu()
+                labels+=batch_data['labels'].view(-1).cpu()
+        
+        preds = torch.FloatTensor(preds)
+        labels = torch.FloatTensor(labels)
+        loss_fn = torch.nn.MSELoss()
+        loss = torch.sqrt(loss_fn(preds, labels))
         self.val_loss_log.append(loss)
         self.model.to('cpu')
         self.model.eval()
@@ -173,30 +195,67 @@ class RobertaTrainer:
         self.model.to(self.device)
         self.model.train()
 
-        with torch.cuda.amp.autocast():
-            outputs = self.model(
-                input_ids=batch_data['input_ids'].to(self.device),
-                attention_mask=batch_data['attention_mask'].to(self.device),
-                #token_type_ids=batch_data['token_type_ids'].to(self.device),
-                labels=batch_data['labels'].to(self.device),
-                )
-            loss, _ = outputs[:2]
+        loss_fn = torch.nn.MSELoss()
+
+        if self.sam:
+            logits, _output = self.model(
+                    input_ids=batch_data['input_ids'].to(self.device),
+                    attention_mask=batch_data['attention_mask'].to(self.device),
+                    #token_type_ids=batch_data['token_type_ids'].to(self.device),
+                    )
+            # calculate loss
+            #　size -> (batch_size, )
+            logits = logits.view(-1)
+            loss = torch.sqrt(
+                loss_fn(batch_data['labels'].view(-1).to(self.device), logits)
+            )
             count += batch_data['labels'].size(0)
             losses.append(loss.item())
             
+            # first forward-backward pass
             self.optimizer.zero_grad()
-            self.scalar.scale(loss).backward()
-            self.scalar.step(self.optimizer)
-            self.scalar.update()
+            loss.backward()
+            loss.backward()
+            self.optimizer.first_step(zero_grad=True)
+
+            # second forward-backward pass
+            logits, _output = self.model(
+                    input_ids=batch_data['input_ids'].to(self.device),
+                    attention_mask=batch_data['attention_mask'].to(self.device),
+                    #token_type_ids=batch_data['token_type_ids'].to(self.device),
+                    )
+            logits = logits.view(-1)
+            torch.sqrt(
+                loss_fn(batch_data['labels'].view(-1).to(self.device), logits)
+            ).backward()  
+            self.optimizer.second_step(zero_grad=True)
+
             self.scheduler.step()
+        
+        else:
+            with torch.cuda.amp.autocast():
+                logits, _output = self.model(
+                    input_ids=batch_data['input_ids'].to(self.device),
+                    attention_mask=batch_data['attention_mask'].to(self.device),
+                    #token_type_ids=batch_data['token_type_ids'].to(self.device),
+                    )
+                # calculate loss
+                #　size -> (batch_size, )
+                logits = logits.view(-1)
+                loss = torch.sqrt(
+                    loss_fn(logits, batch_data['labels'].view(-1).to(self.device))
+                    )
+                count += batch_data['labels'].size(0)
+                losses.append(loss.item())
+                
+                self.optimizer.zero_grad()
+                self.scalar.scale(loss).backward()
+                self.scalar.step(self.optimizer)
+                self.scalar.update()
+                self.scheduler.step()
         self.model.to('cpu')
         self.model.eval()
         return losses, count
-
-    def load_param(self, path):
-        self.model.load_state_dict(
-            torch.load(path)
-            )
 
     def predict(self, test_loader):
         preds=[]
@@ -204,12 +263,12 @@ class RobertaTrainer:
 
         for batch_idx, batch_data in enumerate(test_loader):
             with torch.no_grad():
-                outputs = self.model(
+                logits, _output = self.model(
                     input_ids=batch_data['input_ids'].to(self.device),
                     attention_mask=batch_data['attention_mask'].to(self.device),
                     #token_type_ids=batch_data['token_type_ids'].to(self.device),
                     )
-                preds+=outputs[0].detach().cpu()
+                preds+=logits.detach().cpu()
         self.model.to('cpu')
         return preds
         

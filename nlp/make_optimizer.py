@@ -2,7 +2,9 @@ import os, sys
 import numpy as np 
 import pandas as pd 
 import random, math, gc, pickle
+
 from LAMB import Lamb
+from sam import SAM
 
 import torch
 import torch.nn as nn
@@ -30,7 +32,7 @@ def get_optimizer_params(model):
     ]
     return optimizer_parameters
 
-def make_optimizer(model, optimizer_name="AdamW"):
+def make_optimizer(model, optimizer_name="AdamW", sam=False):
     optimizer_grouped_parameters = get_optimizer_params(model)
     kwargs = {
             'lr':5e-5,
@@ -38,15 +40,33 @@ def make_optimizer(model, optimizer_name="AdamW"):
             # 'betas': (0.9, 0.98),
             # 'eps': 1e-06
     }
-    if optimizer_name == "LAMB":
-        optimizer = Lamb(optimizer_grouped_parameters, **kwargs)
-        return optimizer
-    elif optimizer_name == "Adam":
-        from torch.optim import Adam
-        optimizer = Adam(optimizer_grouped_parameters, **kwargs)
-        return optimizer
-    elif optimizer_name == "AdamW":
-        optimizer = transformers.AdamW(optimizer_grouped_parameters, **kwargs)
-        return optimizer
+    if sam:
+        if optimizer_name == "LAMB":
+            optimizer = Lamb(optimizer_grouped_parameters, **kwargs)
+            return optimizer
+        elif optimizer_name == "Adam":
+            from torch.optim import Adam
+            optimizer = Adam(optimizer_grouped_parameters, **kwargs)
+            return optimizer
+        elif optimizer_name == "AdamW":
+            optimizer = transformers.AdamW(optimizer_grouped_parameters, **kwargs)
+            return optimizer
+        else:
+            raise Exception('Unknown optimizer: {}'.format(optimizer_name))
     else:
-        raise Exception('Unknown optimizer: {}'.format(optimizer_name))
+        if optimizer_name == "LAMB":
+            base_optimizer = Lamb
+            optimizer = SAM(optimizer_grouped_parameters, base_optimizer, rho=0.05, **kwargs)
+            return optimizer
+        elif optimizer_name == "Adam":
+            from torch.optim import Adam
+            base_optimizer = Adam
+            optimizer = SAM(optimizer_grouped_parameters, base_optimizer, rho=0.05, **kwargs)
+            return optimizer
+        elif optimizer_name == "AdamW":
+            from transformers import AdamW
+            base_optimizer = AdamW
+            optimizer = SAM(optimizer_grouped_parameters, base_optimizer, rho=0.05, **kwargs)
+            return optimizer
+        else:
+            raise Exception('Unknown optimizer: {}'.format(optimizer_name))

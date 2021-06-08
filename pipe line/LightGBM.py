@@ -39,8 +39,8 @@ class LightGBM_wrapper:
         self.param = param
 
     def save_model(self, name=''):
-        with open(f'{name}_lgb_wrapper.pickle', 'wb') as f:
-            pickle.dump(self, f)
+        with open(f'{name}_lgb_models.pickle', 'wb') as f:
+            pickle.dump(self.models, f)
     
     def predict(self, test_df):
         preds = []
