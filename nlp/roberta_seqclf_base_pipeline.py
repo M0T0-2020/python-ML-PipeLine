@@ -102,19 +102,15 @@ class AttentionHead(nn.Module):
         return context_vector
 
 class RobertaModel(nn.Module):
-    def __init__(self, param_path, config, output_hidden_states=True):
+    def __init__(self, param_path, config):
         super(RobertaModel, self).__init__()
         self.config = config
-        self.output_hidden_states = output_hidden_states
-        self.roberta = transformers.RobertaModel.from_pretrained(param_path, output_hidden_states=output_hidden_states)
+        self.roberta = transformers.RobertaForSequenceClassification.from_pretrained(param_path, output_hidden_states=True)
         
         self.head = AttentionHead(config.hidden_size, config.hidden_size, 1)
         self.regressor = nn.Sequential(
             nn.Dropout(0.2),
-            nn.Linear(config.hidden_size, config.hidden_size//4),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(config.hidden_size//4, config.num_labels),
+            nn.Linear(config.hidden_size, config.num_labels),
         )
  
     def _init_weights(self, module):
@@ -133,24 +129,14 @@ class RobertaModel(nn.Module):
     def forward(self, input_ids=None, attention_mask=None, token_type_ids=None):
         outputs = self.roberta( input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,)
         
-        if self.output_hidden_states:
-            sequence_output = torch.cat([
-                outputs["hidden_states"][-4][:, 0].reshape((-1, 1, 768)),
-                outputs["hidden_states"][-3][:, 0].reshape((-1, 1, 768)),
-                outputs["hidden_states"][-2][:, 0].reshape((-1, 1, 768)),
-                outputs["pooler_output"].reshape((-1, 1, 768)),
-                outputs["last_hidden_state"] # size (batch, seq_length, 768)
-            ], 1)  
-            sequence_output = self.head(sequence_output)
-            logits = self.regressor(sequence_output)
-            del sequence_output; gc.collect()
-        else:
-            sequence_output = outputs["last_hidden_state"]
-            sequence_output = self.head(sequence_output)
-            logits = self.regressor(sequence_output)
-            del sequence_output; gc.collect()
-
-        return (logits, outputs["pooler_output"])
+        sequence_output = torch.cat([
+            outputs["hidden_states"][-4][:, 0].reshape((-1, 1, 768)),
+            outputs["hidden_states"][-3][:, 0].reshape((-1, 1, 768)),
+            outputs["hidden_states"][-2][:, 0].reshape((-1, 1, 768)),
+            outputs["hidden_states"][-1][:, 0].reshape((-1, 1, 768))
+        ], 1)     
+        logits = self.regressor(sequence_output)
+        return (logits, outputs["logits"])
 
 class RobertaTrainer:
     def __init__(self, param_path, config, log_interval=1, evaluate_interval=1):

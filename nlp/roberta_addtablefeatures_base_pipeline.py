@@ -11,7 +11,7 @@ import transformers
 from make_optimizer import make_optimizer
 from make_scheduler import make_scheduler
 
-def make_robertaConfig(path, cudnn_benchmark=False, num_labels=1, seed=42):
+def make_robertaConfig(path, tablefeatures_length, cudnn_benchmark=False, num_labels=1, seed=42):
     import numpy as np 
     import math, random, torch
     
@@ -25,10 +25,12 @@ def make_robertaConfig(path, cudnn_benchmark=False, num_labels=1, seed=42):
     
     config = transformers.AutoConfig.from_pretrained(path)
     config.update({'seed':seed, 'model_path':path, "num_labels":num_labels,
-                   #"optimizer_name":'AdamW',
-                   "optimizer_name":'LAMB',
+                   #"optimizer_name":'Adam',
+                   "optimizer_name":'AdamW',
+                   #"optimizer_name":'LAMB',
                    "sam":False,
-                   'decay_name':'cosine_warmup'})
+                   'decay_name':'cosine_warmup',
+                   "tablefeatures_length":tablefeatures_length})
     return config
 
 def convert_examples_to_features(sequence, tokenizer, max_len, is_test=False):
@@ -53,8 +55,9 @@ def convert_examples_to_features(sequence, tokenizer, max_len, is_test=False):
     return inputs
 
 class DatasetRoberta(Dataset):
-    def __init__(self, texts, target, max_len, param_path="roberta-base", is_test=False):
+    def __init__(self, texts, tablefeatures, target, max_len, param_path="roberta-base", is_test=False):
         self.texts = list(texts)
+        self.tablefeatures = list(tablefeatures)
         self.targets = list(target)
         self.param_path = param_path
         self.tokenizer = transformers.RobertaTokenizer.from_pretrained(self.param_path)
@@ -77,6 +80,7 @@ class DatasetRoberta(Dataset):
         if not self.is_test:
             label = self.targets[idx]
             features["labels"] = torch.tensor(label, dtype=torch.double)
+        features["tablefeatures"] = torch.FloatTensor(self.tablefeatures[idx])
         return features
 
 class AttentionHead(nn.Module):
@@ -105,17 +109,25 @@ class RobertaModel(nn.Module):
     def __init__(self, param_path, config, output_hidden_states=True):
         super(RobertaModel, self).__init__()
         self.config = config
+        self.tablefeatures_length = config.tablefeatures_length
+
         self.output_hidden_states = output_hidden_states
         self.roberta = transformers.RobertaModel.from_pretrained(param_path, output_hidden_states=output_hidden_states)
         
         self.head = AttentionHead(config.hidden_size, config.hidden_size, 1)
         self.regressor = nn.Sequential(
             nn.Dropout(0.2),
-            nn.Linear(config.hidden_size, config.hidden_size//4),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(config.hidden_size//4, config.num_labels),
+            nn.Linear(config.hidden_size+150, config.num_labels),
         )
+        self.tablefeatures_lin = nn.Sequential(
+            nn.Linear(config.tablefeatures_length, 150),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(150, 150),
+            nn.ReLU(),
+        )
+        
+
  
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -130,7 +142,7 @@ class RobertaModel(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
  
-    def forward(self, input_ids=None, attention_mask=None, token_type_ids=None):
+    def forward(self, input_ids, tablefeatures, attention_mask=None, token_type_ids=None):
         outputs = self.roberta( input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,)
         
         if self.output_hidden_states:
@@ -142,13 +154,22 @@ class RobertaModel(nn.Module):
                 outputs["last_hidden_state"] # size (batch, seq_length, 768)
             ], 1)  
             sequence_output = self.head(sequence_output)
+            tablefeatures = self.tablefeatures_lin(tablefeatures)
+
+            #cat
+            sequence_output = torch.cat([sequence_output, tablefeatures], dim=1)
             logits = self.regressor(sequence_output)
-            del sequence_output; gc.collect()
+            del sequence_output, tablefeatures; gc.collect()
+            
         else:
             sequence_output = outputs["last_hidden_state"]
             sequence_output = self.head(sequence_output)
+            tablefeatures = self.tablefeatures_lin(tablefeatures)
+
+            #cat
+            sequence_output = torch.cat([sequence_output, tablefeatures], dim=1)
             logits = self.regressor(sequence_output)
-            del sequence_output; gc.collect()
+            del sequence_output, tablefeatures; gc.collect()
 
         return (logits, outputs["pooler_output"])
 
@@ -192,6 +213,7 @@ class RobertaTrainer:
                 with torch.cuda.amp.autocast():
                     logits, _output = self.model(
                         input_ids=batch_data['input_ids'].to(self.device),
+                        tablefeatures=batch_data["tablefeatures"].to(self.device),
                         attention_mask=batch_data['attention_mask'].to(self.device),
                         #token_type_ids=batch_data['token_type_ids'].to(self.device),
                         )
@@ -216,6 +238,7 @@ class RobertaTrainer:
         if self.sam:
             logits, _output = self.model(
                     input_ids=batch_data['input_ids'].to(self.device),
+                    tablefeatures=batch_data["tablefeatures"].to(self.device),
                     attention_mask=batch_data['attention_mask'].to(self.device),
                     #token_type_ids=batch_data['token_type_ids'].to(self.device),
                     )
@@ -237,6 +260,7 @@ class RobertaTrainer:
             # second forward-backward pass
             logits, _output = self.model(
                     input_ids=batch_data['input_ids'].to(self.device),
+                    tablefeatures=batch_data["tablefeatures"].to(self.device),
                     attention_mask=batch_data['attention_mask'].to(self.device),
                     #token_type_ids=batch_data['token_type_ids'].to(self.device),
                     )
@@ -252,6 +276,7 @@ class RobertaTrainer:
             with torch.cuda.amp.autocast():
                 logits, _output = self.model(
                     input_ids=batch_data['input_ids'].to(self.device),
+                    tablefeatures=batch_data["tablefeatures"].to(self.device),
                     attention_mask=batch_data['attention_mask'].to(self.device),
                     #token_type_ids=batch_data['token_type_ids'].to(self.device),
                     )
@@ -281,6 +306,7 @@ class RobertaTrainer:
             with torch.no_grad():
                 logits, _output = self.model(
                     input_ids=batch_data['input_ids'].to(self.device),
+                    tablefeatures=batch_data["tablefeatures"].to(self.device),
                     attention_mask=batch_data['attention_mask'].to(self.device),
                     #token_type_ids=batch_data['token_type_ids'].to(self.device),
                     )
