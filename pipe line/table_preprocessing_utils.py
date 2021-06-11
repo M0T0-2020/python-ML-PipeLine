@@ -12,7 +12,7 @@ import umap
 from sklearn.preprocessing import StandardScaler, LabelEncoder, KBinsDiscretizer
 from sklearn.cluster import KMeans
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import TfidfVectorizer, CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.neighbors import KNeighborsClassifier
 
 from warnings import filterwarnings
@@ -68,9 +68,10 @@ class CountEncoder(BaseTransformer):
         return self
     
     def transform(self, X):
+        df = pd.DataFrame()
         for col in self.cols:
-            X[f"{col}_countenc"] = X[col].map(self.counts[col]).fillna(0)
-        return X
+            df[f"{col}_countenc"] = X[col].map(self.counts[col]).fillna(0)
+        return df
     
 class KNNFeatureExtractor(BaseTransformer):
     def __init__(self, N_CLASSES, n_neighbors=5):
@@ -82,6 +83,10 @@ class KNNFeatureExtractor(BaseTransformer):
         self.is_train_data = is_train_data
         
     def fit(self, X, y):
+        """
+        X : feature (note: not assume null value.)
+        y : target
+        """
         self.knn.fit(X, y)
         self.y = y if isinstance(y, np.ndarray) else np.array(y)
         return self
@@ -119,17 +124,18 @@ class KNNFeatureExtractor(BaseTransformer):
         
 class UMapFeatureExtractor(BaseTransformer):
     def __init__(self, cols, n_components, random_state=42):
+        self.cols = cols
         self.n_components = n_components
         self.reducer = umap.UMAP(n_components=n_components, random_state=random_state)
         
     def fit(self, X):
-        self.reducer.fit(X)
+        self.reducer.fit(X[self.cols])
         
     def _get_column_names(self):
         return [f"umap_feature_{i}" for i in range(self.n_components)]
     
     def transform(self, X):
-        df = self.reducer.transform(X)
+        df = self.reducer.transform(X[self.cols])
         df = pd.DataFrame(df, columns=[f"umap_feature_{i}" for i in range(self.n_components)])
         return df
         
@@ -186,16 +192,24 @@ class KBinsDiscreteFeatureExtractor(BaseTransformer):
         self.kbin.fit(X[self.cols].fillna(0))
         
     def transform(self, X):
+        df = pd.DataFrame()
         value = self.kbin.transform(X[self.cols].fillna(0))
         for i, bins in zip(range(len(self.cols)), self.n_bins):
-            X[f"k{bins}bins{self.strategy}category_{self.cols[i]}"] = value[:,i]
-        return X
+            df[f"k{bins}bins{self.strategy}category_{self.cols[i]}"] = value[:,i]
+        return df
     
 class GroupFeatureExtractor(BaseTransformer):
     # 参考: https://signate.jp/competitions/449/discussions/lgbm-baseline-lb06240
     EX_TRANS_METHODS = ["deviation", "zscore"]
     
     def __init__(self, group_key, group_values, agg_methods):
+        """
+        group_key : list of columns names for grouping
+        group_values : list of column names for aggregate
+        agg_methods : list (aggregate names)
+
+        note: you must this instance for each group_key.
+        """
         self.group_key = group_key
         self.group_values = group_values
 
@@ -203,7 +217,11 @@ class GroupFeatureExtractor(BaseTransformer):
         self.agg_methods = [m for m in agg_methods if m not in self.ex_trans_methods]
         self.df_agg = None
 
-    def fit(self, df_train, y=None):
+    def fit(self, df, y=None):
+        """
+        df : DataFrame contains group_key and group_values columns
+        """
+        df_train = df[self.group_key+self.group_values]
         self.dfs = {}
         if self.ex_trans_methods:
             tmp_df = df_train.groupby(self.group_key)[self.group_values].agg(['mean', 'std'])
@@ -217,7 +235,11 @@ class GroupFeatureExtractor(BaseTransformer):
             self.agg_methods_col_name = list(tmp_df.columns)
             self.dfs["agg_methods"] = tmp_df
             
-    def transform(self, df_eval):
+    def transform(self, df):
+        """
+        df : DataFrame contains group_key and group_values columns
+        """
+        df_eval = df[self.group_key+self.group_values]
         new_dfs = []
         if self.ex_trans_methods:
             new_cols = []
@@ -250,7 +272,3 @@ class GroupFeatureExtractor(BaseTransformer):
         for s in self.group_key:
             n+=s
         return f"agg_{method}_{col}_grpby_{n}"
-
-    def fit_transform(self, df_train, y=None):
-        self.fit(df_train, y=y)
-        return self.transform(df_train)  
