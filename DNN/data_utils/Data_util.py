@@ -1,3 +1,4 @@
+import random
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
@@ -127,6 +128,10 @@ class balancedBatchDatasetSampler(torch.utils.data.sampler.BatchSampler):
             
         for key,value in self.group.items():
             self.group[key]=list(value)
+        max_length = max(len(v) for v in self.group.values())
+        for key, value in self.group.items():
+            if len(value)<max_length:
+                self.group[key]=value+random.sample(value,k=1)
 
     def make_batch_plan(self):
         self.batch_plan = []
