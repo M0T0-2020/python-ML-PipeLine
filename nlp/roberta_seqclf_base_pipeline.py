@@ -181,8 +181,8 @@ class RobertaTrainer:
                         attention_mask=batch_data['attention_mask'].to(self.device),
                         #token_type_ids=batch_data['token_type_ids'].to(self.device),
                         )
-                preds+=logits.detach().view(-1).cpu()
-                labels+=batch_data['labels'].view(-1).cpu()
+                preds+=logits.detach().view(-1).cpu().tolist()
+                labels+=batch_data['labels'].view(-1).cpu().tolist()
         
         preds = torch.FloatTensor(preds)
         labels = torch.FloatTensor(labels)

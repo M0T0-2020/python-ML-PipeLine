@@ -32,7 +32,7 @@ class Null_Importance:
         if PARAMS is not None:
             self.PARAMS = PARAMS  
         else:
-            self.PARAMS = self.param = {
+            self.PARAMS = {
                 'boosting_type': 'gbdt',
                 "objective":"rmse",
                 'n_estimators': 1400, 'boost_from_average': False,'verbose': -1,'random_state':42,

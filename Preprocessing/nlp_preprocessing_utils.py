@@ -27,8 +27,12 @@ from nltk import WordNetLemmatizer
 
 
 class GoogleTranslate:
-    def __init__(self, translate_cols, dest='en'):
-        self.col = translate_cols
+    """
+    g_translate = GoogleTranslate('text', dest='en')
+    df = g_translate.translate_text(df)
+    """
+    def __init__(self, col, dest='en'):
+        self.col = col
         self.dest = dest
 
     def translate_text_util(self, comment, src, dest, i):

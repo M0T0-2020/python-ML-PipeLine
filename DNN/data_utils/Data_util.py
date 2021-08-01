@@ -20,7 +20,7 @@ class CreateDataset(Dataset):
         if self.y!=None:
             return {
                 'input': x,
-                'label': torch.FloatTensor(self.y[index])
+                'label': torch.tensor(self.y[index], dtype=torch.float)
             }
         else:
             return {
@@ -29,6 +29,8 @@ class CreateDataset(Dataset):
 
 
 class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
+    #Mutually exclusive with batch_size, shuffle, sampler, and drop_last
+    #batch_size, shuffle, sampler, and drop_last　と互いに排他的
     """Samples elements randomly from a given list of indices for imbalanced dataset
     Arguments:
         indices (list, optional): a list of indices
@@ -81,8 +83,77 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         
                 
     def __iter__(self):
-        return (self.indices[i] for i in torch.multinomial(
-            self.weights, self.num_samples, replacement=True))
+        return ( self.indices[i] for i in torch.multinomial(self.weights, self.num_samples, replacement=True) )
 
     def __len__(self):
         return self.num_samples
+
+class balancedBatchDatasetSampler(torch.utils.data.sampler.BatchSampler):
+    #Mutually exclusive with batch_size, shuffle, sampler, and drop_last
+    #batch_size, shuffle, sampler, and drop_last　と互いに排他的
+    """Samples elements randomly from a given list of indices for imbalanced dataset
+    Arguments:
+        indices (list, optional): a list of indices
+        num_samples (int, optional): number of samples to draw
+        callback_get_label func: a callback-like function which takes two arguments - dataset and index
+    """
+
+    def __init__(self, dataset, batch_size, indices=None,  callback_get_label=None):
+        self.indices = list(range(len(dataset)))
+        self.batch_size = batch_size
+        
+        self.loader_len = len(dataset)//batch_size
+        self.surplus = len(dataset)%batch_size
+        self.argsort = np.argsort(dataset.y)
+        self.weights = None
+        
+        
+        self._get_group()
+        self.make_batch_plan()
+        
+    def _get_group(self, ):
+        surplus_keys = np.random.choice(range(self.batch_size), self.surplus, replace=False)
+        self.group = {}
+        cnt = 0
+        for i in range(self.batch_size):
+            if i in surplus_keys:
+                size = self.loader_len + 1
+            else:
+                size = self.loader_len
+            self.group[i] = self.argsort[cnt:cnt+size]
+            cnt += size
+        for value in self.group.values():
+            np.random.shuffle(value)
+            
+        for key,value in self.group.items():
+            self.group[key]=list(value)
+
+    def make_batch_plan(self):
+        self.batch_plan = []
+        if self.surplus==0:
+            size = self.loader_len
+        else:
+            size = self.loader_len + 1                
+        for _ in range(size):
+            l = []
+            for value in self.group.values():
+                if len(value)>0:
+                    l.append(value.pop(0))
+            self.batch_plan.append(l)
+    
+    """
+    def __iter__(self):
+        sample_batch_plan = self.batch_plan.pop(0)
+        if len(self.batch_plan)==0:
+            self._get_group()
+            self.make_batch()
+        return ( int(idx) for idx in sample_batch_plan )
+    """
+    def __iter__(self):
+        for batch in self.batch_plan:
+            yield batch
+        self._get_group()
+        self.make_batch_plan()
+
+    def __len__(self):
+        return self.loader_len

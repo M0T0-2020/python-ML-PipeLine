@@ -30,7 +30,7 @@ class LightGBM_wrapper:
         self.target = target
         self.cat_cols = cat_cols 
 
-        self.models=[]
+        self.models={}
     
     def get_importance(self, importance_type='gain'):
         return np.mean([model.feature_importance(importance_type) for model in self.models], axis=0)
@@ -44,32 +44,38 @@ class LightGBM_wrapper:
     
     def predict(self, test_df):
         preds = []
-        for m in self.models:
-            preds.append(m.predict(test_df[self.features]))
+        for ms in self.models.values():
+            for m in ms:
+                preds.append(m.predict(test_df[self.features]))
         test_df[f'{self.target}_lgb_predict'] = np.mean(preds, axis=0)
         return test_df
-
     
-    def train(self, train_df):
+    def train(self, train_df, seed_average=[42]):
         """
         Fold のカラム名は　基本Fold
         """        
         Folds = set(train_df["Fold"])
         valid = []
+        for seed in seed_average:
+            self.models[seed]=[]
         
         for fold in Folds:
             train_data = lgb.Dataset(train_df.loc[train_df["Fold"]!=fold, self.features], train_df.loc[train_df["Fold"]!=fold, self.target])
             valid_df = train_df[train_df["Fold"]==fold]
             valid_data = lgb.Dataset(valid_df[self.features], valid_df[self.target])
-            model = lgb.train(self.param,  train_data,  num_boost_round=99999,  valid_sets=[train_data, valid_data], 
-                              #feval=lgb_f1_score,
-                              verbose_eval=500, early_stopping_rounds=200, categorical_feature=self.cat_cols)
-            
-            
-            valid_df[f'{self.target}_lgb_predict'] = model.predict(valid_df[self.features])
+            for seed in seed_average:
+                self.param["random_state"]=seed
+                model = lgb.train(self.param,  train_data,  num_boost_round=99999,  valid_sets=[train_data, valid_data], 
+                                #feval=lgb_f1_score,
+                                verbose_eval=500, early_stopping_rounds=200, categorical_feature=self.cat_cols)
+                self.models[seed].append(model)
+            val_preds = []
+            for models in self.models.values():
+                m = models[-1]
+                val_preds.append(m.predict(valid_df[self.features]))
+            valid_df[f'{self.target}_lgb_predict'] = np.mean(val_preds, axis=0)
             valid.append(valid_df)
-            self.models.append(model)
-            
+
         oof_df = pd.concat(valid, axis=0).sort_index().reset_index(drop=True)
         return oof_df
 

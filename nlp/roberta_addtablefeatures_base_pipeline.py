@@ -80,6 +80,7 @@ class DatasetRoberta(Dataset):
         if not self.is_test:
             label = self.targets[idx]
             features["labels"] = torch.tensor(label, dtype=torch.double)
+        # np.inf np.nanは許さない
         features["tablefeatures"] = torch.FloatTensor(self.tablefeatures[idx])
         return features
 
@@ -217,8 +218,8 @@ class RobertaTrainer:
                         attention_mask=batch_data['attention_mask'].to(self.device),
                         #token_type_ids=batch_data['token_type_ids'].to(self.device),
                         )
-                preds+=logits.detach().view(-1).cpu()
-                labels+=batch_data['labels'].view(-1).cpu()
+                preds+=logits.detach().view(-1).cpu().tolist()
+                labels+=batch_data['labels'].view(-1).cpu().tolist()
         
         preds = torch.FloatTensor(preds)
         labels = torch.FloatTensor(labels)
@@ -245,15 +246,15 @@ class RobertaTrainer:
             # calculate loss
             #　size -> (batch_size, )
             logits = logits.view(-1)
+            dtype = batch_data['labels'].dtype
             loss = torch.sqrt(
-                loss_fn(batch_data['labels'].view(-1).to(self.device), logits)
-            )
+                loss_fn(logits.to(dtype), batch_data['labels'].view(-1).to(self.device))
+                )
             count += batch_data['labels'].size(0)
             losses.append(loss.item())
             
             # first forward-backward pass
             self.optimizer.zero_grad()
-            loss.backward()
             loss.backward()
             self.optimizer.first_step(zero_grad=True)
 
@@ -265,9 +266,10 @@ class RobertaTrainer:
                     #token_type_ids=batch_data['token_type_ids'].to(self.device),
                     )
             logits = logits.view(-1)
+            dtype = batch_data['labels'].dtype
             torch.sqrt(
-                loss_fn(batch_data['labels'].view(-1).to(self.device), logits)
-            ).backward()  
+                loss_fn(logits.to(dtype), batch_data['labels'].view(-1).to(self.device))
+                ).backward()  
             self.optimizer.second_step(zero_grad=True)
 
             self.scheduler.step()
@@ -283,8 +285,9 @@ class RobertaTrainer:
                 # calculate loss
                 #　size -> (batch_size, )
                 logits = logits.view(-1)
+                dtype = batch_data['labels'].dtype
                 loss = torch.sqrt(
-                    loss_fn(logits, batch_data['labels'].view(-1).to(self.device))
+                    loss_fn(logits.to(dtype), batch_data['labels'].view(-1).to(self.device))
                     )
                 count += batch_data['labels'].size(0)
                 losses.append(loss.item())

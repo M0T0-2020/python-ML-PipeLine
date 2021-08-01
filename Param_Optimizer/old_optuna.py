@@ -6,6 +6,12 @@ from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold
 from sklearn import metrics
 
 import lightgbm as lgb
+import xgboost as xgb
+import catboost
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor
+from sklearn.linear_model import Ridge, LinearRegression, Lasso
+from sklearn.svm import SVR
 
 import optuna
 
@@ -125,7 +131,7 @@ class Optuna_XGBoost:
             'colsample_bynode': trial.suggest_uniform('colsample_bynode', 0.4, 0.9),
             'colsample_bytree': trial.suggest_uniform('colsample_bytree', 0.4, 0.9),
             'gamma': trial.suggest_uniform('gamma', 0, 100),
-            'min_child_weight': trial.suggest_uniform('min_child_weight', 0, 100),,
+            'min_child_weight': trial.suggest_uniform('min_child_weight', 0, 100),
             'lambda': trial.suggest_loguniform('lambda', 0.0001, 10.0),
             'alpha': trial.suggest_loguniform('alpha', 0.0001, 10.0),
         }
@@ -148,7 +154,7 @@ class Optuna_XGBoost:
                     verbose_eval=200, early_stopping_rounds=100
                     )
                     
-                preds = self.model.predict(valid_data)
+                preds = model.predict(valid_data)
                 y = val_df[self.target]
                 s = self.make_score(y, preds)
                 score+=s/(n*k.n_splits)
