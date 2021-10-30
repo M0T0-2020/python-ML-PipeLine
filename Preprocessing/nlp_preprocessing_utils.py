@@ -20,12 +20,19 @@ from googletrans import Translator
 import pycld2 as cld2
 import re
 import textstat
-from nltk.corpus import stopwords
+from nltk.corpus import stopwords, wordnet
 import nltk, string
 from nltk.stem.porter import PorterStemmer
 from nltk import WordNetLemmatizer
 
+#単語の定義を取ってくる
+def get_definition(s):
+    definitions = []
+    for syn in wordnet.synsets(s):
+        definitions.append(syn.definition())
+    return definitions
 
+#翻訳APIを叩く
 class GoogleTranslate:
     """
     g_translate = GoogleTranslate('text', dest='en')
@@ -66,6 +73,7 @@ class GoogleTranslate:
         df[f'translate_{self.dest}_{self.col}'] = translated_data[f'translate_{self.dest}'].values
         return df
 
+# Bertの埋め込み表現
 class BertSequenceVectorizer:
     def __init__(self):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -105,7 +113,8 @@ class BaseTransformer(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         return self
-        
+
+#文字の長さ特徴量     
 class TextstatProcessing(BaseTransformer):
     def __init__(self, col_name):
         self.col_name = col_name
@@ -125,7 +134,8 @@ class TextstatProcessing(BaseTransformer):
         X[f'{self.col_name}_coleman_liau_index'] = X[self.col_name].apply(textstat.coleman_liau_index)
         X[f'{self.col_name}_linsear_write_formula'] = X[self.col_name].apply(textstat.linsear_write_formula)
         return X
-    
+
+# 言語判別
 class LanguageDetectFeatureExtractor(BaseTransformer):
     def __init__(self, cols):
         self.cols = cols

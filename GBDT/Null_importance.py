@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import gc
 from tqdm import tqdm_notebook as tqdm
 
 from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold, KFold
@@ -13,7 +14,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 class Null_Importance:
-    def __init__(self, df, features, target, cat_cols, PARAMS=None, N=30, n_splits=5, feature_length='all'):
+    def __init__(self, df, features, target, cat_cols='auto', PARAMS=None, N=30, n_splits=5, feature_length='all'):
         """
         df : DataFrame - contain "Fold" columns
         features: list - training features
@@ -25,6 +26,7 @@ class Null_Importance:
         feature_length: int or str - number of features to get importance default 'all'
         """
         self.df = df.reset_index(drop=True)
+        gc.collect()
         self.features = features
         self.target = target
         self.cat_cols = cat_cols
@@ -70,7 +72,7 @@ class Null_Importance:
                                 categorical_feature=self.cat_cols,
                                 num_boost_round=999999, early_stopping_rounds=200, verbose_eval=500)
                 #preds = model.predict(val_X)
-            
+                del train_set, val_set, trn_df, val_df;gc.collect()
                 importance.append(model.feature_importance('gain'))
         importance_df['true_importance'] = np.mean(importance, axis=0)
         importance_df.sort_values("true_importance", ascending=False, inplace=True)
@@ -97,6 +99,7 @@ class Null_Importance:
                 train_set=train_set, valid_sets=[train_set, val_set], categorical_feature=self.cat_cols,
                 num_boost_round=999999, early_stopping_rounds=200, verbose_eval=500)
                 tmp_null_importance.append(model.feature_importance('gain'))
+                del train_set, val_set, trn_df, val_df;gc.collect()
             self.null_importance[f'null_importance_{i+1}'] = np.mean(tmp_null_importance, axis=0)
 
     def calu_importance(self):

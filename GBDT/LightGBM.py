@@ -5,7 +5,7 @@ import pandas as pd
 import time, random, math
 import pickle
 
-from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold, KFold
+from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold, KFold, GroupKFold
 from sklearn import metrics
 
 import lightgbm as lgb
@@ -33,7 +33,7 @@ class LightGBM_wrapper:
         self.models={}
     
     def get_importance(self, importance_type='gain'):
-        return np.mean([model.feature_importance(importance_type) for model in self.models], axis=0)
+        return np.mean([model.feature_importance(importance_type) for models in self.models.values() for model in models], axis=0)
 
     def set_param(self, param):
         self.param = param
@@ -54,7 +54,7 @@ class LightGBM_wrapper:
         """
         Fold のカラム名は　基本Fold
         """        
-        Folds = set(train_df["Fold"])
+        Folds = set(train_df["Fold"].dropna())
         valid = []
         for seed in seed_average:
             self.models[seed]=[]
@@ -69,10 +69,12 @@ class LightGBM_wrapper:
                                 #feval=lgb_f1_score,
                                 verbose_eval=500, early_stopping_rounds=200, categorical_feature=self.cat_cols)
                 self.models[seed].append(model)
+                gc.collect()
             val_preds = []
             for models in self.models.values():
                 m = models[-1]
                 val_preds.append(m.predict(valid_df[self.features]))
+                gc.collect()
             valid_df[f'{self.target}_lgb_predict'] = np.mean(val_preds, axis=0)
             valid.append(valid_df)
 
@@ -128,15 +130,17 @@ class MultiClassLightGBM_wrapper:
             train_data = lgb.Dataset(train_df.loc[train_df["Fold"]!=fold, self.features], train_df.loc[train_df["Fold"]!=fold, self.target])
             valid_df = train_df[train_df["Fold"]==fold]
             valid_data = lgb.Dataset(valid_df[self.features], valid_df[self.target])
-            model = lgb.train(self.param,  train_data,  num_boost_round=3000,  valid_sets=[train_data, valid_data], 
+            model = lgb.train(self.param,  train_data,  num_boost_round=999999,  valid_sets=[train_data, valid_data], 
                               
                               #feval=my__metircs,
                               #fobj=my_obj,
 
                               verbose_eval=500, early_stopping_rounds=200, categorical_feature=self.cat_cols)
             valid_preds = model.predict(valid_df[self.features])
+            gc.collect()
             for i in range(self.num_class):
                 valid_df[f'{self.target}{i}_lgb_predict'] = valid_preds[:,i]
+                gc.collect()
                 
             valid.append(valid_df)
             self.models.append(model)

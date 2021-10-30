@@ -5,7 +5,7 @@ from torch import nn
 from torch import optim
 from torch import cuda
 from torch.optim.swa_utils import AveragedModel, SWALR
-from optimizer_utils import make_optimizer
+from optimizer_utils.make_optimizer import make_optimizer
 
 def count_nn_parameters(net):
     params = 0
@@ -14,7 +14,7 @@ def count_nn_parameters(net):
             params += p.numel()
     return params
 
-class Model_Trainer:
+class ModelTrainer:
     def __init__(self, config):
         self.device =  'cuda' if cuda.is_available() else 'cpu'
         
@@ -42,7 +42,6 @@ class Model_Trainer:
             
             #if len(np.unique(label))!=self.output_size:
              #   continue
-            
             
             label = label.to(self.device)
             x = self.model(x)   
@@ -91,14 +90,6 @@ class Model_Trainer_With_SWA:
         #self.criterion = CustomLoss()
         #self.criterion = CustomLoss_2(4)
         self.criterion = nn.MSELoss()
-
-        
-
-        
-        
-        
-
-
 
     def load_params(self, state_dict):
         self.model.load_state_dict(state_dict)

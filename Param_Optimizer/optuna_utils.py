@@ -27,7 +27,7 @@ class optuna_lightgbm:
             #'metric': 'rmse',  'metric': 'tweedie',
             #'objective': 'tweedie',
             #'tweedie_variance_power': trial.suggest_uniform('tweedie_variance_power', 1.01, 1.8),
-            'n_estimators': 1400, 'boost_from_average': False,'verbose': -1,'random_state':2020,}
+            'n_estimators': 10000, 'boost_from_average': False,'verbose': -1,'random_state':2020,}
         self.model = model
         self.features = features
         self.cat_cols = cat_cols
@@ -47,7 +47,7 @@ class optuna_lightgbm:
             'learning_rate': trial.suggest_loguniform('learning_rate', 0.03, 0.5),
             'num_leaves': trial.suggest_int('num_leaves', 4, 2*5),
             'feature_fraction': trial.suggest_uniform('feature_fraction', 0.4, 1.0),
-            'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
+            #'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
             'min_child_samples': trial.suggest_int('min_child_samples', 5, 100),
             'lambda_l1': trial.suggest_loguniform('lambda_l1', 0.0001, 10.0),
             'lambda_l2': trial.suggest_loguniform('lambda_l2', 0.0001, 10.0),
