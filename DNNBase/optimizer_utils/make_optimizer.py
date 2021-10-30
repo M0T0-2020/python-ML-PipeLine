@@ -1,17 +1,16 @@
+from torch import Module
 from torch.optim import Adam
 import transformers
 from LAMB import Lamb
 from RAdam import RAdam
 from sam import SAM
 
-def make_optimizer(model, optimizer_name="AdamW", sam=False):
+tmp_kwargs = {'lr':1e-4, 'weight_decay':0.01,
+            #"betas":(0.9, 0.999),
+            #'eps': 1e-06
+            }
+def make_optimizer(model:Module, kwargs, optimizer_name:str="AdamW", sam:bool=False):
     optimizer_grouped_parameters = model.parameters()
-    kwargs = {
-        'lr':1e-4,
-        'weight_decay':0.01,
-        #"betas":(0.9, 0.999),
-        # 'eps': 1e-06
-    }
     if not sam:
         if optimizer_name == "RAdam":
             optimizer = RAdam(optimizer_grouped_parameters, **kwargs)

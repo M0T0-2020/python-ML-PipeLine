@@ -67,6 +67,7 @@ class LightGBM_wrapper:
                 self.param["random_state"]=seed
                 model = lgb.train(self.param,  train_data,  num_boost_round=99999,  valid_sets=[train_data, valid_data], 
                                 #feval=lgb_f1_score,
+                                #feval=my__metircs,
                                 verbose_eval=500, early_stopping_rounds=200, categorical_feature=self.cat_cols)
                 self.models[seed].append(model)
                 gc.collect()

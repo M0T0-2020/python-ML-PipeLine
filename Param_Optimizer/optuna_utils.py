@@ -7,7 +7,7 @@ from sklearn import metrics
 
 import lightgbm as lgb
 import xgboost as xgb
-import catboost
+import catboost as ctb
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor
 from sklearn.linear_model import Ridge, LinearRegression, Lasso

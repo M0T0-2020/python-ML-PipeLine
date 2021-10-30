@@ -37,7 +37,7 @@ class OptunaOptimizer:
     print(study.best_params)
     """
 
-    def __init__(self, df, model, features, target, base_param=None, criterion=None, cat_cols=None, num_iter=1, kfold=StratifiedKFold, n_splits=5):
+    def __init__(self, df, model, features, target, base_param=None, criterion=None, cat_cols='auto', num_iter=1, kfold=StratifiedKFold, n_splits=5):
         self.df = df
         self.model_name = model.__name__
         self.model_wrapper = _get_model_wrapper(model, features, target, cat_cols, base_param)
