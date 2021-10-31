@@ -1,9 +1,9 @@
 from torch import Module
 from torch.optim import Adam
 import transformers
-from LAMB import Lamb
-from RAdam import RAdam
-from sam import SAM
+from .Lamb import Lamb
+from .RAdam import RAdam
+from .sam import SAM
 
 tmp_kwargs = {'lr':1e-4, 'weight_decay':0.01,
             #"betas":(0.9, 0.999),
