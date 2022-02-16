@@ -17,7 +17,6 @@ tqdm.pandas()
 import googletrans
 from googletrans import Translator
 
-import pycld2 as cld2
 import re
 import textstat
 from nltk.corpus import stopwords, wordnet
@@ -38,9 +37,14 @@ class GoogleTranslate:
     g_translate = GoogleTranslate('text', dest='en')
     df = g_translate.translate_text(df)
     """
-    def __init__(self, col, dest='en'):
+    def __init__(self, col, dest='en', sleep_time=0.1):
         self.col = col
+        #変換後の言語
         self.dest = dest
+        self.sleep_time = sleep_time
+        
+    def show_language(self):
+        print(googletrans.LANGUAGES)
 
     def translate_text_util(self, comment, src, dest, i):
         if type(comment)==str:
@@ -48,21 +52,28 @@ class GoogleTranslate:
             translator.raise_Exception = True
             text = ''
             comments = comment.split('.')
+            comments = [c for c in comments if c!="" ]
             for comment in comments:
                 comment+='.'
                 try:
                     text += translator.translate(comment, src=src, dest=dest).text
-                    
+                    time.sleep(self.sleep_time)
                 except:
-                    text += translator.translate(comment, dest=dest).text
-                gc.collect()
-                time.sleep(0.5)
+                    try:
+                        text += translator.translate(comment, dest=dest).text
+                        time.sleep(self.sleep_time)
+                    except:
+                        pass
+            gc.collect()
             return str(text), i
         else:
             return comment, i
-    def translate_text(self, df):
+
+    def __call__(self, df):
         parallel = Parallel(n_jobs=-1, backend="threading", verbose=5)
+        #変換元のtext
         comments_list = df[self.col].values
+        #変換元textの言語
         comments_lang_list = df[f"{self.col}_lang"].values
         print(f'Translate comments using {self.dest} language')
         translated_data = parallel(
@@ -138,6 +149,7 @@ class TextstatProcessing(BaseTransformer):
 # 言語判別
 class LanguageDetectFeatureExtractor(BaseTransformer):
     def __init__(self, cols):
+        import pycld2 as cld2
         self.cols = cols
 
     def language_detect(self, s):
