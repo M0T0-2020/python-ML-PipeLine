@@ -174,60 +174,69 @@ class LanguageDetectFeatureExtractor(BaseTransformer):
         return X
 
 #日本語の分かち書き
-def get_wakati_ja(s):
-    """
-    ==usagge==
-    df["ja_new_text"] = df["ja_text"].apply(get_wakati_ja)
-    """
-    tknz = Tokenizer()
+class WakatiJa:
+    def __init__(self, speech = ["名詞", "動詞", "形容詞" ]):
+        self.speech = speech
+        self.tknz = Tokenizer()
 
-    UNICODE_EMOJI = []
-    for lang, value in emoji.UNICODE_EMOJI.items():
-        UNICODE_EMOJI += list(value.keys())
-    UNICODE_EMOJI = list(set(UNICODE_EMOJI))
+        UNICODE_EMOJI = []
+        for lang, value in emoji.UNICODE_EMOJI.items():
+            UNICODE_EMOJI += list(value.keys())
+        self.UNICODE_EMOJI = list(set(UNICODE_EMOJI))
 
-    l = []
-    speech = ["名詞", "動詞", "形容詞" ]
-    code_regex = re.compile('[!"#$%&\'\\\\()*+,-./:;<=>?@[\\]^_`{|}~「」〔〕“”〈〉『』【】＆＊・（）＄＃＠。、？！｀＋￥％]')
-    s = code_regex.sub(' ', s)
-    for token in tknz.tokenize(s):
-        if token.part_of_speech.split(",")[0] in speech:
-            t = token.base_form
-            t = t.replace(' ', '')
-            if len(t)==0:
-                continue
-            if len(t)==1:
-                if len(re.findall('[\u3041-\u309F]+', t))>0:
+        self.code_regex = re.compile('[!"#$%&\'\\\\()*+,-./:;<=>?@[\\]^_`{|}~「」〔〕“”〈〉『』【】＆＊・（）＄＃＠。、？！｀＋￥％]')
+
+    def get_wakati_ja(self, s):
+        """
+        ==usagge==
+        df["ja_new_text"] = df["ja_text"].apply(get_wakati_ja)
+        """
+
+        l = []
+        
+        s = self.code_regex.sub(' ', s)
+        for token in self.tknz.tokenize(s):
+            if token.part_of_speech.split(",")[0] in self.speech:
+                t = token.base_form
+                t = t.replace(' ', '')
+                if len(t)==0:
                     continue
-            if t in UNICODE_EMOJI:
-                continue
-            #t = token.surface
-            l.append(t)
-    l = [s.replace(' ', '') for s in l]
-    l = [s for s in l if len(s)>0]
-    s = " ".join(l)
-    return s
+                if len(t)==1:
+                    if len(re.findall('[\u3041-\u309F]+', t))>0:
+                        continue
+                if t in self.UNICODE_EMOJI:
+                    continue
+                #t = token.surface
+                l.append(t)
+        l = [s.replace(' ', '') for s in l]
+        l = [s for s in l if len(s)>0]
+        s = " ".join(l)
+        return s
+class ChangeTextEnglish:
+    def __init__(self, ):
+        self.porter = PorterStemmer()
+        self.lemma = WordNetLemmatizer()  # NOTE: 複数形の単語を単数形に変換する
+        
+    def change_text_en(self, text):
+        """
+        ==usagge==
+        df["english_new_text"] = df["english_text"].apply(change_text_en)
+        """
+        stop_words = list(nltk_stopwords.words("english"))+[' '*i for i in range(10)]
+        
+        #usage
+        #train['text'] = train['text'].parallel_apply(self.change_text)
+        text = re.sub("[^a-zA-Z]", " ", text).lower()
+        text = nltk.word_tokenize(text)  # NOTE: 英文を単語分割する
+        text = [word for word in text if not word in stop_words]
+        text = [self.porter.stem(word) for word in text]
+        text = [s.replace(' ', '') for s in text]
+        text = [s for s in text if len(s)>0]
+        text =  " ".join(text)
+        #text =  " ".join([lemma.lemmatize(word) for word in text])
+        return text
 
-def change_text_en(text):
-    """
-    ==usagge==
-    df["english_new_text"] = df["english_text"].apply(change_text_en)
-    """
-    stop_words = list(nltk_stopwords.words("english"))+[' '*i for i in range(10)]
-    porter = PorterStemmer()
-    lemma = WordNetLemmatizer()  # NOTE: 複数形の単語を単数形に変換する
-    #usage
-    #train['text'] = train['text'].parallel_apply(self.change_text)
-    text = re.sub("[^a-zA-Z]", " ", text).lower()
-    text = nltk.word_tokenize(text)  # NOTE: 英文を単語分割する
-    text = [word for word in text if not word in stop_words]
-    text = [porter.stem(word) for word in text]
-    text = [s.replace(' ', '') for s in text]
-    text = [s for s in text if len(s)>0]
-    text =  " ".join(text)
-    #text =  " ".join([lemma.lemmatize(word) for word in text])
-    return text
-
+# wakatigaki for other language
 class change_text:
     """
     ==usagge==
@@ -272,7 +281,8 @@ class change_text:
         text = [s for s in text if len(s)>0]
         text =  " ".join(text)
         return text
-    
+
+#tfidf feature
 class TfidfVectorFeatureExtractor(BaseTransformer):
     def __init__(self, col):
         self.vec_tfidf = TfidfVectorizer()
@@ -286,7 +296,7 @@ class TfidfVectorFeatureExtractor(BaseTransformer):
         X = pd.DataFrame(X.toarray(), columns=self.vec_tfidf.get_feature_names())
         return X
 
-
+# count feature
 class CountVectorFeatureExtractor(BaseTransformer):
     def __init__(self, col):
         self.vec_count = CountVectorizer()
