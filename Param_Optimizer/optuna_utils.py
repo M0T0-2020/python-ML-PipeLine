@@ -42,8 +42,8 @@ class optuna_lightgbm:
     def prepare_parameters(self, trial):
         params = {
             'max_bin': trial.suggest_int('max_bin', 50, 300),
-            'subsample': trial.suggest_uniform('subsample', 0.4, 0.9),
-            'subsample_freq': trial.suggest_uniform('subsample_freq', 0.4, 0.9),
+            'subsample': trial.suggest_uniform('subsample', 0.4, 1.0),
+            'subsample_freq': trial.suggest_int('subsample_freq', 1, 5),
             'learning_rate': trial.suggest_loguniform('learning_rate', 0.03, 0.5),
             'num_leaves': trial.suggest_int('num_leaves', 4, 2*5),
             'feature_fraction': trial.suggest_uniform('feature_fraction', 0.4, 1.0),
