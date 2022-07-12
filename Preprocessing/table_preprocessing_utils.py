@@ -27,6 +27,11 @@ class BaseTransformer(BaseEstimator, TransformerMixin):
         return self
 
 class OneHotEncoder(BaseTransformer):
+    """
+    one_hot_enc = OneHotEncoder(to_onehot_cols)
+    one_hot_enc.fit(df)
+    df = one_hot_enc.transform(df)
+    """
     def __init__(self, cols):
         self.cols = cols
 
