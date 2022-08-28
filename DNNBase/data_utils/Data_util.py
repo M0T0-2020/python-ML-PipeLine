@@ -5,6 +5,8 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 import torch.utils.data
 
+# im = Image.open('data/src/lenna_square.png')
+# cv.imread()
 class CreateDataset(Dataset):
     def __init__(self, X, y):
         self.X=X
